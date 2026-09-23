@@ -332,6 +332,7 @@ async function handleMessages(accountId, { messages, type }) {
   if (targets.length === 0) return;
 
   const session = getSession(accountId);
+  const { humanize } = getSettings();
 
   for (const message of messages) {
     if (!message?.key?.id) continue;
@@ -389,15 +390,20 @@ async function handleMessages(accountId, { messages, type }) {
 
     addLog('success', `[${account.label}] Mensaje detectado de ${who} con la palabra clave.`);
 
-    // Anti-baneo: no solapar respuestas en el mismo chat ni responder en ráfaga por registro.
+    // Anti-baneo: no solapar respuestas en el mismo chat.
     if (session.busyChats.has(jid)) {
       addLog('warn', `[${account.label}] Ya hay una respuesta en curso en este chat. Se omite este mensaje.`);
       continue;
     }
-    const lastReplyAt = session.lastReplyByTarget.get(target.id) ?? 0;
-    if (Date.now() - lastReplyAt < MIN_REPLY_INTERVAL_MS) {
-      addLog('warn', `[${account.label}] Esperando un momento antes de volver a responder a este registro (límite de frecuencia).`);
-      continue;
+
+    // El límite de frecuencia solo aplica en Modo humano.
+    // Con respuesta inmediata (por defecto) no se limita ningún mensaje.
+    if (humanize) {
+      const lastReplyAt = session.lastReplyByTarget.get(target.id) ?? 0;
+      if (Date.now() - lastReplyAt < MIN_REPLY_INTERVAL_MS) {
+        addLog('warn', `[${account.label}] Modo humano: se omite una respuesta seguida al mismo registro (límite de 15 s).`);
+        continue;
+      }
     }
 
     session.busyChats.add(jid);

@@ -994,8 +994,8 @@ function applySettings(settings) {
   const humanize = Boolean(settings.humanize);
   el('humanizeToggle').checked = humanize;
   el('humanizeHint').textContent = humanize
-    ? 'Humanizado: espera de 5 a 15 s, simula escritura de 2 a 5 s y luego responde.'
-    : 'Respuesta inmediata: contesta en cuanto detecta la palabra clave.';
+    ? 'Humanizado: espera de 5 a 15 s, simula escritura de 2 a 5 s y limita respuestas seguidas (15 s).'
+    : 'Respuesta inmediata: contesta en cuanto detecta la palabra clave, sin límites.';
 }
 
 el('humanizeToggle').addEventListener('change', async (event) => {
