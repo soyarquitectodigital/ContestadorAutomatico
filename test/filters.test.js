@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   containsAnyKeyword,
   containsKeyword,
+  describeAuthor,
   digitsOnly,
   evaluateMessage,
   extractText,
@@ -158,4 +159,15 @@ test('Sin registros configurados no pasa nada', () => {
   const result = evaluateMessage(buildMessage({ text: 'flores amarillas' }), []);
   assert.equal(result.pass, false);
   assert.equal(result.reason, 'usuario-no-objetivo');
+});
+
+test('describeAuthor muestra teléfono real y LID cuando existen', () => {
+  assert.equal(describeAuthor({ participant: '584241234567@s.whatsapp.net' }), '+584241234567');
+  assert.equal(
+    describeAuthor({ participant: '7461027712@lid', participantAlt: '584241234567@s.whatsapp.net' }),
+    '+584241234567 (lid 7461027712)',
+  );
+  assert.equal(describeAuthor({ participant: '7461027712@lid' }), 'lid 7461027712');
+  assert.equal(describeAuthor({ participantAlt: '584111111111@s.whatsapp.net' }), '+584111111111');
+  assert.equal(describeAuthor({}), 'desconocido');
 });

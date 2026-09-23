@@ -6,7 +6,7 @@ import QRCode from 'qrcode';
 import { getSettings, getTargets } from './lib/config.js';
 import { accountAuthFolder, getAccount, getAccounts } from './lib/accounts.js';
 import { addLog } from './lib/logger.js';
-import { containsAnyKeyword, digitsOnly, evaluateMessage, extractText } from './lib/filters.js';
+import { containsAnyKeyword, containsKeyword, describeAuthor, evaluateMessage, extractText, matchesTargetUser } from './lib/filters.js';
 
 export const botEvents = new EventEmitter();
 
@@ -345,28 +345,36 @@ async function handleMessages(accountId, { messages, type }) {
     const timestampMs = Number(message.messageTimestamp) * 1000;
     if (timestampMs && Date.now() - timestampMs > MAX_MESSAGE_AGE_MS) continue;
 
-    const authorNumber = digitsOnly(message.key.participant || message.key.participantAlt) || 'desconocido';
+    const jid = message.key.remoteJid;
+    const author = describeAuthor(message.key);
     const result = evaluateMessage(message, targets);
 
     if (!result.pass) {
       const text = extractText(message.message);
-      const authorTargets = targets.filter((target) => digitsOnly(target.targetUser) === authorNumber);
+      const authorTargets = targets.filter((target) => matchesTargetUser(message.key, target.targetUser));
 
-      if (result.reason === 'usuario-no-objetivo' && text && containsAnyKeyword(text, targets)) {
-        addLog('warn', `[${account.label}] Mensaje con palabra clave de un número no registrado. Se ignora.`);
+      if (result.reason === 'usuario-no-objetivo' && text) {
+        // El autor tiene registros, pero en otra cuenta de WhatsApp.
+        const matchesElsewhere = getTargets().some(
+          (target) => matchesTargetUser(message.key, target.targetUser) && containsKeyword(text, target.keyword),
+        );
+        if (matchesElsewhere) {
+          addLog('warn', `[${account.label}] ${author} tiene registros en otra cuenta de WhatsApp; este número no responderá. Se ignora.`);
+        } else if (containsAnyKeyword(text, targets)) {
+          addLog('warn', `[${account.label}] Mensaje con palabra clave de un número no registrado (${author}) en ${jid}. Se ignora.`);
+        }
       } else if (result.reason === 'sin-palabra-clave' && authorTargets.length > 0) {
-        addLog('info', `[${account.label}] Bot ignorando mensaje de +${authorNumber}: no contiene la palabra clave.`);
+        addLog('info', `[${account.label}] Bot ignorando mensaje de ${author}: no contiene la palabra clave.`);
       } else if (result.reason === 'otro-grupo') {
-        addLog('info', `[${account.label}] Palabra clave de +${authorNumber} ignorada: el grupo no coincide con su registro.`);
+        addLog('info', `[${account.label}] Palabra clave de ${author} ignorada: el grupo no coincide con su registro.`);
       } else if (result.reason === 'registro-desactivado') {
-        addLog('warn', `[${account.label}] Coincidencia con +${authorNumber}, pero su registro está desactivado.`);
+        addLog('warn', `[${account.label}] Coincidencia con ${author}, pero su registro está desactivado.`);
       }
       continue;
     }
 
     const { target } = result;
-    const jid = message.key.remoteJid;
-    const who = target.label ? `${target.label} (+${authorNumber})` : `+${authorNumber}`;
+    const who = target.label ? `${target.label} (${author})` : author;
 
     // Registro "cualquier cuenta": evita que dos cuentas respondan el mismo mensaje.
     if (!target.accountId) {
