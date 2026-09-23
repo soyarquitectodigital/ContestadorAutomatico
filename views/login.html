@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acceso · Contestador Automático</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body class="centered">
+  <main class="login-card">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 3C7.03 3 3 6.58 3 11c0 2.3 1.15 4.38 3 5.87V21l3.87-1.55c.68.16 1.4.25 2.13.25 4.97 0 9-3.58 9-8S16.97 3 12 3z"/></svg>
+      </span>
+      <div>
+        <h1>Contestador Automático</h1>
+        <p class="subtitle" id="subtitle">Panel de control para WhatsApp</p>
+      </div>
+    </div>
+
+    <form id="authForm" autocomplete="off" novalidate>
+      <div>
+        <label for="password" id="passwordLabel">Contraseña maestra</label>
+        <div class="input-wrap">
+          <input type="password" id="password" name="password" required minlength="8" placeholder="••••••••" autofocus aria-describedby="capsHint message">
+          <button type="button" class="input-action" id="togglePassword" aria-label="Mostrar contraseña" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 3 8.6 3 12s4 7 9 7 9-3.6 9-7-4-7-9-7zm0 11.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9zm0-2a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/></svg>
+          </button>
+        </div>
+        <p id="capsHint" class="hint hidden">El bloqueo de mayúsculas está activado.</p>
+      </div>
+
+      <div id="strengthWrap" class="strength hidden">
+        <div class="strength-bar"><span id="strengthFill"></span></div>
+        <span id="strengthText" class="strength-text"></span>
+      </div>
+
+      <div id="confirmGroup" class="hidden">
+        <label for="confirm">Repite la contraseña</label>
+        <div class="input-wrap">
+          <input type="password" id="confirm" minlength="8" placeholder="••••••••" aria-describedby="confirmError">
+          <button type="button" class="input-action" id="toggleConfirm" aria-label="Mostrar contraseña" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C7 5 3 8.6 3 12s4 7 9 7 9-3.6 9-7-4-7-9-7zm0 11.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9zm0-2a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/></svg>
+          </button>
+        </div>
+        <p id="confirmError" class="field-error hidden"></p>
+      </div>
+
+      <button type="submit" id="submitBtn" class="btn btn-primary">Entrar</button>
+    </form>
+
+    <p id="message" class="message" role="alert"></p>
+    <p class="hint" id="hint"></p>
+  </main>
+  <script src="/js/login.js"></script>
+</body>
+</html>

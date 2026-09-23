@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel · Contestador Automático</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 3C7.03 3 3 6.58 3 11c0 2.3 1.15 4.38 3 5.87V21l3.87-1.55c.68.16 1.4.25 2.13.25 4.97 0 9-3.58 9-8S16.97 3 12 3z"/></svg>
+      </span>
+      <div>
+        <h1>Contestador Automático</h1>
+        <p class="subtitle">Bot selectivo de WhatsApp</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span id="statusBadge" class="badge badge-off">Desconectado</span>
+      <button id="logoutPanelBtn" class="btn btn-ghost" type="button">Cerrar panel</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="steps">
+      <!-- Paso 1: cuentas de WhatsApp -->
+      <article class="card accounts-card">
+        <header class="card-header">
+          <span class="step-number" id="stepNumber1">1</span>
+          <h2>Números de WhatsApp</h2>
+          <span id="accountsCount" class="badge-count">0 conectados / 0</span>
+        </header>
+        <p class="muted">Toca un número para ver o agregar sus registros. Cada uno se vincula con su propio QR.</p>
+
+        <div class="targets-toolbar">
+          <button id="startAllBtn" class="btn" type="button">Conectar todas</button>
+          <button id="addAccountBtn" class="btn btn-primary" type="button">+ Agregar número</button>
+        </div>
+
+        <div id="accountsList" class="accounts-list"></div>
+        <p id="accountsEmpty" class="empty-state">Aún no hay números de WhatsApp. Pulsa “Agregar número”.</p>
+      </article>
+
+      <!-- Paso 2: registros compartidos -->
+      <article class="card targets-card">
+        <header class="card-header">
+          <span class="step-number" id="stepNumber2">2</span>
+          <h2>Registros compartidos</h2>
+          <span id="globalTargetsCount" class="badge-count">0 activos / 0</span>
+        </header>
+        <p class="muted">Responden desde la primera cuenta conectada. Útil si no importa qué número conteste.</p>
+
+        <div id="globalTargetsList" class="targets-list"></div>
+        <p id="globalTargetsEmpty" class="empty-state">Sin registros compartidos.</p>
+        <button id="addTargetBtn" class="add-row-btn" type="button">+ Agregar registro compartido</button>
+      </article>
+    </section>
+
+    <!-- Panel de logs -->
+    <aside class="card logs-card">
+      <header class="card-header">
+        <h2>Eventos recientes</h2>
+        <div class="log-tools">
+          <button id="copyLogsBtn" class="icon-btn" type="button" title="Copiar eventos" aria-label="Copiar eventos">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg>
+          </button>
+          <button id="clearLogsBtn" class="icon-btn" type="button" title="Limpiar eventos" aria-label="Limpiar eventos">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="log-filters" id="logFilters" role="group" aria-label="Filtrar eventos">
+        <button class="chip chip-active" data-level="all" type="button">Todos</button>
+        <button class="chip" data-level="success" type="button">Éxito</button>
+        <button class="chip" data-level="info" type="button">Info</button>
+        <button class="chip" data-level="warn" type="button">Avisos</button>
+        <button class="chip" data-level="error" type="button">Errores</button>
+      </div>
+
+      <div class="log-scroll">
+        <ul id="logList" class="log-list" aria-live="polite"></ul>
+        <p id="logEmpty" class="empty-state">Aún no hay eventos.</p>
+        <button id="scrollBottomBtn" class="scroll-bottom hidden" type="button">Nuevos eventos</button>
+      </div>
+    </aside>
+  </main>
+
+  <datalist id="groupOptions"></datalist>
+
+  <!-- Editor de registros -->
+  <div id="targetModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="targetModalTitle">
+    <div class="modal modal-lg">
+      <h3 id="targetModalTitle">Agregar número</h3>
+
+      <div class="modal-tabs" role="tablist" aria-label="Modo de carga">
+        <button id="modeSingleBtn" class="modal-tab modal-tab-active" type="button" role="tab" aria-selected="true">Un número</button>
+        <button id="modeBulkBtn" class="modal-tab" type="button" role="tab" aria-selected="false">Varios números</button>
+      </div>
+
+      <form id="targetForm" class="modal-form" novalidate>
+        <div id="bulkFields" class="hidden">
+          <label for="inputBulk">Números (uno por línea)</label>
+          <textarea id="inputBulk" class="mono" rows="6" placeholder="584241234567&#10;584111111111, Cliente Ana&#10;584222222222; Pedro" aria-describedby="hintBulk bulkCount errorBulk"></textarea>
+          <p id="hintBulk" class="hint">Formato por línea: <code>número</code> o <code>número, etiqueta</code>. Todos comparten la palabra clave y la respuesta.</p>
+          <p id="bulkCount" class="hint">Escribe al menos un número.</p>
+          <p id="errorBulk" class="field-error hidden"></p>
+        </div>
+
+        <div id="singleFields">
+          <label for="inputNumber">Número de WhatsApp</label>
+          <input id="inputNumber" type="text" inputmode="numeric" placeholder="584241234567" autocomplete="off" aria-describedby="errorNumber">
+          <p id="errorNumber" class="field-error hidden"></p>
+        </div>
+
+        <div>
+          <label for="inputKeyword">Palabra clave</label>
+          <input id="inputKeyword" type="text" placeholder="flores amarillas" autocomplete="off" aria-describedby="errorKeyword">
+          <p id="errorKeyword" class="field-error hidden"></p>
+        </div>
+
+        <div>
+          <label for="inputResponse">Respuesta</label>
+          <textarea id="inputResponse" rows="3" placeholder="Yo quiero una" aria-describedby="errorResponse"></textarea>
+          <p id="errorResponse" class="field-error hidden"></p>
+        </div>
+
+        <details id="advancedOptions" class="advanced">
+          <summary>Opciones avanzadas (etiqueta, grupo, cuenta)</summary>
+          <div class="advanced-body">
+            <div id="advancedLabelField">
+              <label for="inputLabel">Etiqueta (opcional)</label>
+              <input id="inputLabel" type="text" placeholder="Cliente María" maxlength="60" autocomplete="off">
+            </div>
+
+            <div>
+              <label for="inputGroup">Grupo (opcional)</label>
+              <div class="row">
+                <input id="inputGroup" list="groupOptions" placeholder="Vacío = cualquier grupo" autocomplete="off" aria-describedby="errorGroup">
+                <button id="loadGroupsBtn" class="btn" type="button">Cargar grupos</button>
+              </div>
+              <p id="errorGroup" class="field-error hidden"></p>
+            </div>
+
+            <div>
+              <label for="inputAccount">Cuenta de WhatsApp que responde</label>
+              <select id="inputAccount">
+                <option value="">Cualquier cuenta conectada</option>
+              </select>
+            </div>
+          </div>
+        </details>
+
+        <div id="bulkReport" class="bulk-report hidden" role="status"></div>
+
+        <div class="modal-actions">
+          <button id="targetModalCancel" class="btn" type="button">Cancelar</button>
+          <button id="targetModalSave" class="btn btn-primary" type="submit">Guardar registro</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Editor de cuentas de WhatsApp -->
+  <div id="accountModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle">
+    <div class="modal">
+      <h3 id="accountModalTitle">Agregar número de WhatsApp</h3>
+      <form id="accountForm" class="modal-form" novalidate>
+        <div>
+          <label for="inputAccountLabel">Etiqueta</label>
+          <input id="inputAccountLabel" type="text" placeholder="Número principal" maxlength="60" autocomplete="off" aria-describedby="errorAccountLabel">
+          <p id="errorAccountLabel" class="field-error hidden"></p>
+        </div>
+        <p class="hint">Después de guardarla, pulsa “Vincular” y escanea el código QR con ese WhatsApp.</p>
+        <div class="modal-actions">
+          <button id="accountModalCancel" class="btn" type="button">Cancelar</button>
+          <button id="accountModalSave" class="btn btn-primary" type="submit">Guardar número</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Confirmación -->
+  <div id="modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <h3 id="modalTitle">Confirmar acción</h3>
+      <p id="modalText" class="muted"></p>
+      <div class="modal-actions">
+        <button id="modalCancel" class="btn" type="button">Cancelar</button>
+        <button id="modalConfirm" class="btn btn-danger-solid" type="button">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notificaciones -->
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>

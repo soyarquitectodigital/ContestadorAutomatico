@@ -1,0 +1,31 @@
+# Despliegue en Render (https://render.com)
+#
+# Importante: el disco persistente es obligatorio para no perder las sesiones
+# de WhatsApp (data/auth_info) ni la configuración en cada reinicio.
+# Los discos persistentes no están disponibles en el plan free.
+#
+# Pasos:
+#   1. Sube el repositorio a GitHub/GitLab.
+#   2. En Render: New -> Blueprint -> selecciona el repositorio.
+#   3. Render crea el servicio con su disco y variables; espera el deploy.
+#   4. Abre la URL del servicio y crea la contraseña maestra en el primer acceso.
+
+services:
+  - type: web
+    name: contestador-automatico
+    runtime: docker
+    plan: starter
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATA_DIR
+        value: /var/data
+      # Opcional: fija la contraseña maestra por entorno en lugar del primer acceso
+      # - key: MASTER_KEY
+      #   sync: false
+    disk:
+      name: datos
+      mountPath: /var/data
+      sizeGB: 1
