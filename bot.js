@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import makeWASocket, { Browsers, DisconnectReason, useMultiFileAuthState } from 'baileys';
 import pino from 'pino';
 import QRCode from 'qrcode';
-import { getTargets } from './lib/config.js';
+import { getSettings, getTargets } from './lib/config.js';
 import { accountAuthFolder, getAccount, getAccounts } from './lib/accounts.js';
 import { addLog } from './lib/logger.js';
 import { containsAnyKeyword, digitsOnly, evaluateMessage, extractText } from './lib/filters.js';
@@ -395,7 +395,7 @@ async function handleMessages(accountId, { messages, type }) {
     session.busyChats.add(jid);
     session.lastReplyByTarget.set(target.id, Date.now());
     try {
-      await replyWithHumanDelay(session.sock, jid, target.response, message);
+      await sendReply(session.sock, jid, target.response, message);
       addLog('success', `[${account.label}] Respuesta enviada a ${who} citando el mensaje original.`);
     } catch (error) {
       addLog('error', `[${account.label}] No se pudo enviar la respuesta: ${error?.message ?? error}`);
@@ -405,8 +405,18 @@ async function handleMessages(accountId, { messages, type }) {
   }
 }
 
-// ==== Secuencia de humanización anti-baneo (orden obligatorio) ====
-async function replyWithHumanDelay(sock, jid, responseText, quotedMessage) {
+// Envío de la respuesta.
+// Modo humano desactivado (por defecto): responde al instante.
+// Modo humano activado en Ajustes: ejecuta la secuencia anti-baneo completa.
+async function sendReply(sock, jid, responseText, quotedMessage) {
+  const { humanize } = getSettings();
+
+  if (!humanize) {
+    await sock.sendMessage(jid, { text: responseText }, { quoted: quotedMessage });
+    return;
+  }
+
+  // ==== Secuencia de humanización anti-baneo (orden obligatorio) ====
   // 1) Retraso inicial aleatorio de 5 a 15 segundos, como una persona que aún no responde.
   const initialDelay = randomBetween(INITIAL_DELAY_MIN_MS, INITIAL_DELAY_MAX_MS);
   addLog('info', `Esperando ${(initialDelay / 1000).toFixed(1)}s antes de responder (humanización).`);

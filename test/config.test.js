@@ -214,3 +214,20 @@ test('los registros guardan la cuenta asignada (CRUD multi-cuenta)', async () =>
   const noChange = await config.clearAccountFromTargets('cuenta-1');
   assert.equal(noChange, false);
 });
+
+test('settings: modo humano desactivado por defecto y configurable', async () => {
+  await fs.rm(configFile, { force: true });
+  await config.initConfig();
+
+  assert.deepEqual(config.getSettings(), { humanize: false });
+
+  const updated = await config.updateSettings({ humanize: true });
+  assert.equal(updated.humanize, true);
+
+  const persisted = JSON.parse(await fs.readFile(configFile, 'utf8'));
+  assert.equal(persisted.settings.humanize, true);
+
+  // El ajuste sobrevive un reinicio.
+  await config.initConfig();
+  assert.equal(config.getSettings().humanize, true);
+});

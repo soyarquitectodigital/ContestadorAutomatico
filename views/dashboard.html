@@ -59,6 +59,23 @@
         <p id="globalTargetsEmpty" class="empty-state">Sin registros compartidos.</p>
         <button id="addTargetBtn" class="add-row-btn" type="button">+ Agregar registro compartido</button>
       </article>
+
+      <!-- Ajustes de respuesta -->
+      <article class="card settings-card">
+        <header class="card-header">
+          <h2>Ajustes de respuesta</h2>
+        </header>
+        <div class="setting-row">
+          <div class="setting-text">
+            <p class="setting-title">Modo humano (anti-baneo)</p>
+            <p class="muted" id="humanizeHint">Respuesta inmediata: contesta en cuanto detecta la palabra clave.</p>
+          </div>
+          <label class="switch" title="Activar o desactivar el modo humano">
+            <input type="checkbox" id="humanizeToggle" aria-label="Modo humano (anti-baneo)">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+      </article>
     </section>
 
     <!-- Panel de logs -->

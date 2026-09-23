@@ -989,6 +989,39 @@ el('clearLogsBtn').addEventListener('click', () => {
   toast('info', 'Panel de eventos limpio');
 });
 
+/* ---- Ajustes de respuesta ---- */
+function applySettings(settings) {
+  const humanize = Boolean(settings.humanize);
+  el('humanizeToggle').checked = humanize;
+  el('humanizeHint').textContent = humanize
+    ? 'Humanizado: espera de 5 a 15 s, simula escritura de 2 a 5 s y luego responde.'
+    : 'Respuesta inmediata: contesta en cuanto detecta la palabra clave.';
+}
+
+el('humanizeToggle').addEventListener('change', async (event) => {
+  const toggle = event.target;
+  toggle.disabled = true;
+  try {
+    const settings = await api('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ humanize: toggle.checked }),
+    });
+    applySettings(settings);
+    toast(
+      'info',
+      settings.humanize ? 'Modo humano activado' : 'Respuesta inmediata activada',
+      settings.humanize
+        ? 'Las respuestas esperarán y simularán escritura.'
+        : 'El bot contestará al instante.',
+    );
+  } catch (error) {
+    toggle.checked = !toggle.checked;
+    toast('error', 'No se pudo cambiar el ajuste', error.message);
+  } finally {
+    toggle.disabled = false;
+  }
+});
+
 /* ---- Sesión y atajos ---- */
 el('logoutPanelBtn').addEventListener('click', async () => {
   try {
@@ -1031,9 +1064,14 @@ async function init() {
       window.location.href = '/login';
       return;
     }
-    const [accountList, targetList] = await Promise.all([api('/api/accounts'), api('/api/targets')]);
+    const [accountList, targetList, settings] = await Promise.all([
+      api('/api/accounts'),
+      api('/api/targets'),
+      api('/api/settings'),
+    ]);
     accounts = accountList;
     targets = targetList;
+    applySettings(settings);
     renderAccounts();
     renderTargets();
   } catch {

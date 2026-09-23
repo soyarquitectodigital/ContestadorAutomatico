@@ -703,6 +703,15 @@ textarea.mono {
 
 .add-row-btn:hover { border-color: var(--accent); color: var(--accent-dark); background: var(--accent-soft); }
 
+/* ---- Ajustes de respuesta ---- */
+.settings-card { grid-column: 1 / -1; }
+
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.setting-text { min-width: 0; }
+.setting-title { margin: 0 0 3px; font-weight: 800; font-size: 0.92rem; }
+.setting-row .muted { margin: 0; }
+.setting-row .switch { margin-top: 0; }
+
 /* ---- Opciones avanzadas del registro ---- */
 .advanced {
   border: 1px solid var(--border);

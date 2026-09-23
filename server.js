@@ -8,6 +8,8 @@ import { Server as SocketServer } from 'socket.io';
 import {
   initConfig,
   getTargets,
+  getSettings,
+  updateSettings,
   createTarget,
   createTargetsBulk,
   updateTarget,
@@ -159,6 +161,26 @@ function sendError(res, error) {
 
 app.get('/api/status', (req, res) => {
   res.json(getAggregateState());
+});
+
+// ---- Ajustes de respuesta ----
+app.get('/api/settings', (req, res) => {
+  res.json(getSettings());
+});
+
+app.put('/api/settings', async (req, res) => {
+  try {
+    const settings = await updateSettings(req.body ?? {});
+    addLog(
+      'info',
+      settings.humanize
+        ? 'Modo humano (anti-baneo) activado: las respuestas esperan y simulan escritura.'
+        : 'Respuesta inmediata activada: el bot contesta al instante.',
+    );
+    res.json(settings);
+  } catch (error) {
+    sendError(res, error);
+  }
 });
 
 // ---- Cuentas de WhatsApp (varias sesiones con QR propio) ----
