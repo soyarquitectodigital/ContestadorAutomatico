@@ -7,6 +7,7 @@ import session from 'express-session';
 import { Server as SocketServer } from 'socket.io';
 import {
   initConfig,
+  dataDir,
   getTargets,
   getSettings,
   updateSettings,
@@ -375,7 +376,34 @@ process.on('unhandledRejection', (error) => {
   addLog('error', `Error no controlado: ${error?.message ?? error}`);
 });
 
+// ---- Cierre ordenado ----
+// En Render cada despliegue envía SIGTERM antes de apagar el contenedor. Cerrar
+// las sesiones de WhatsApp antes de salir evita credenciales a medias y que se
+// pida escanear el QR de nuevo tras la actualización.
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  addLog('info', `Cerrando (${signal}): guardando sesiones de WhatsApp...`);
+  try {
+    await stopAllAccounts();
+  } catch (error) {
+    addLog('error', `No se pudieron detener las cuentas: ${error?.message ?? error}`);
+  }
+  server.close(() => process.exit(0));
+  // Failsafe: no quedarse colgado si alguna conexión no cierra.
+  setTimeout(() => process.exit(0), 10000).unref();
+}
+
+process.on('SIGTERM', () => {
+  shutdown('SIGTERM');
+});
+process.on('SIGINT', () => {
+  shutdown('SIGINT');
+});
+
 // ---- Arranque ----
+addLog('info', `Carpeta de datos: ${dataDir()}`);
 await initConfig();
 await initAccounts();
 const migrated = await migrateLegacySession();
