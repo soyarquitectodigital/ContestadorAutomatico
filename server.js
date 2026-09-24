@@ -36,6 +36,7 @@ import {
   getAggregateState,
   getGroups,
   logoutAccount,
+  prewarmGroup,
   removeAccountSession,
   startAccount,
   startAllAccounts,
@@ -286,6 +287,7 @@ app.post('/api/targets', async (req, res) => {
     if (problem) return res.status(400).json({ error: problem, errors: [problem] });
     const target = await createTarget(req.body ?? {});
     addLog('success', `Registro agregado: ${target.label || `+${target.targetUser}`} (palabras clave: ${target.keywords.map((k) => `“${k}”`).join(', ')}).`);
+    if (target.groupJid) void prewarmGroup(target.accountId, target.groupJid);
     res.status(201).json(target);
   } catch (error) {
     sendError(res, error);
@@ -301,6 +303,7 @@ app.post('/api/targets/bulk', async (req, res) => {
     if (result.created.length > 0) {
       const skippedText = result.skipped.length > 0 ? `, ${result.skipped.length} omitido(s)` : '';
       addLog('success', `Carga masiva: ${result.created.length} registro(s) agregado(s)${skippedText}.`);
+      if (groupJid) void prewarmGroup(accountId, groupJid);
     }
     res.status(201).json(result);
   } catch (error) {
@@ -314,6 +317,7 @@ app.put('/api/targets/:id', async (req, res) => {
     if (problem) return res.status(400).json({ error: problem, errors: [problem] });
     const target = await updateTarget(req.params.id, req.body ?? {});
     addLog('info', `Registro actualizado: ${target.label || `+${target.targetUser}`} (palabras clave: ${target.keywords.map((k) => `“${k}”`).join(', ')}).`);
+    if (target.groupJid) void prewarmGroup(target.accountId, target.groupJid);
     res.json(target);
   } catch (error) {
     sendError(res, error);

@@ -10,6 +10,7 @@ import { addLog } from './lib/logger.js';
 import { containsAnyKeyword, matchesAnyKeyword, describeAuthor, evaluateMessage, extractText, matchesTargetUser, targetKeywords } from './lib/filters.js';
 import { createGroupMetadataCache } from './lib/group-cache.js';
 import { createChatQueues, QueueFullError } from './lib/chat-queue.js';
+import { groupsToPrewarm, DEFAULT_MAX_PREWARM_GROUPS } from './lib/prewarm.js';
 
 export const botEvents = new EventEmitter();
 
@@ -19,7 +20,7 @@ const INITIAL_DELAY_MAX_MS = 15000; // retraso inicial máximo antes de responde
 const TYPING_DELAY_MIN_MS = 2000; // duración mínima del estado "escribiendo..."
 const TYPING_DELAY_MAX_MS = 5000; // duración máxima del estado "escribiendo..."
 const MIN_REPLY_INTERVAL_MS = 15000; // intervalo mínimo entre respuestas por registro
-const MAX_MESSAGE_AGE_MS = 60000; // ignora mensajes con más de 1 minuto de antigüedad
+const MAX_MESSAGE_AGE_MS = 120000; // ignora mensajes con más de 2 minutos de antigüedad
 const USER_DEVICES_TTL_SECONDS = 30 * 60; // cache de dispositivos por cuenta (evita consultas USync)
 const RECONNECT_BASE_MS = 3000;
 const RECONNECT_MAX_MS = 30000;
@@ -190,6 +191,9 @@ async function handleConnectionUpdate(accountId, update) {
     session.sock?.groupFetchAllParticipating?.().catch(() => {
       // Si falla, el cache se llena con los envíos normales.
     });
+    // Precalienta dispositivos y sesiones de los grupos con registros para que
+    // la primera respuesta no pague el USync ni el intercambio de prekeys.
+    void prewarmAccount(account, session);
   }
 
   if (connection === 'close') {
@@ -209,6 +213,63 @@ async function handleConnectionUpdate(accountId, update) {
     } else {
       setStatus(account, 'disconnected', 'Detenido por el usuario');
     }
+  }
+}
+
+// Deja listos en memoria dispositivos y sesiones Signal de un grupo, usando los
+// métodos internos que Baileys expone. Evita el costo del primer envío.
+async function prewarmSingleGroup(account, session, jid) {
+  if (typeof session.sock?.getUSyncDevices !== 'function' || typeof session.sock?.assertSessions !== 'function') {
+    return 0;
+  }
+
+  const meta = session.groupMetadataCache.get(jid) ?? (await session.sock.groupMetadata(jid));
+  if (Array.isArray(meta?.participants)) session.groupMetadataCache.set(meta);
+
+  const participants = (meta?.participants ?? []).map((participant) => participant.id).filter(Boolean);
+  if (participants.length === 0) return 0;
+
+  const deviceList = await session.sock.getUSyncDevices(participants, true, false);
+  const deviceJids = deviceList.map((device) => device.jid).filter(Boolean);
+  if (deviceJids.length > 0) await session.sock.assertSessions(deviceJids, false);
+  return deviceJids.length;
+}
+
+// Precalienta los grupos referenciados por los registros de la cuenta.
+async function prewarmAccount(account, session) {
+  const groups = groupsToPrewarm(getTargets(), account.id, DEFAULT_MAX_PREWARM_GROUPS);
+  if (groups.length === 0) return;
+
+  const startedAt = Date.now();
+  let devices = 0;
+  addLog('info', `[${account.label}] Precalentando ${groups.length} grupo(s) para responder más rápido...`);
+
+  for (const jid of groups) {
+    if (session.status !== 'connected' || !session.sock) break;
+    try {
+      devices += await prewarmSingleGroup(account, session, jid);
+    } catch (error) {
+      addLog('warn', `[${account.label}] No se pudo precalentar ${jid}: ${error?.message ?? error}`);
+    }
+  }
+
+  addLog('info', `[${account.label}] Precalentamiento completado en ${Date.now() - startedAt} ms (${devices} dispositivo(s)).`);
+}
+
+// Precalienta un grupo concreto al guardar un registro con grupo (best-effort).
+export async function prewarmGroup(accountId, groupJid) {
+  const account = getAccount(accountId);
+  const session = sessions.get(accountId);
+  if (!account || !session || !groupJid) return false;
+  if (session.status !== 'connected' || !session.sock) return false;
+
+  try {
+    await prewarmSingleGroup(account, session, groupJid);
+    addLog('info', `[${account.label}] Grupo ${groupJid} precalentado para respuesta inmediata.`);
+    return true;
+  } catch (error) {
+    addLog('warn', `[${account.label}] No se pudo precalentar ${groupJid}: ${error?.message ?? error}`);
+    return false;
   }
 }
 
@@ -376,7 +437,11 @@ async function processMessage(account, session, message, targets, humanize) {
 
   // Anti-baneo: nunca responder a mensajes antiguos (historial).
   const timestampMs = Number(message.messageTimestamp) * 1000;
-  if (timestampMs && Date.now() - timestampMs > MAX_MESSAGE_AGE_MS) return;
+  if (timestampMs && Date.now() - timestampMs > MAX_MESSAGE_AGE_MS) {
+    const ageSeconds = Math.round((Date.now() - timestampMs) / 1000);
+    addLog('warn', `[${account.label}] Mensaje de ${describeAuthor(message.key)} descartado por antigüedad (${ageSeconds}s).`);
+    return;
+  }
 
   const jid = message.key.remoteJid;
   const author = describeAuthor(message.key);
