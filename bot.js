@@ -1,12 +1,15 @@
 import { rm } from 'node:fs/promises';
 import { EventEmitter } from 'node:events';
 import makeWASocket, { Browsers, DisconnectReason, useMultiFileAuthState } from 'baileys';
+import NodeCache from '@cacheable/node-cache';
 import pino from 'pino';
 import QRCode from 'qrcode';
 import { getSettings, getTargets } from './lib/config.js';
 import { accountAuthFolder, getAccount, getAccounts } from './lib/accounts.js';
 import { addLog } from './lib/logger.js';
 import { containsAnyKeyword, matchesAnyKeyword, describeAuthor, evaluateMessage, extractText, matchesTargetUser, targetKeywords } from './lib/filters.js';
+import { createGroupMetadataCache } from './lib/group-cache.js';
+import { createChatQueues, QueueFullError } from './lib/chat-queue.js';
 
 export const botEvents = new EventEmitter();
 
@@ -17,6 +20,7 @@ const TYPING_DELAY_MIN_MS = 2000; // duración mínima del estado "escribiendo..
 const TYPING_DELAY_MAX_MS = 5000; // duración máxima del estado "escribiendo..."
 const MIN_REPLY_INTERVAL_MS = 15000; // intervalo mínimo entre respuestas por registro
 const MAX_MESSAGE_AGE_MS = 60000; // ignora mensajes con más de 1 minuto de antigüedad
+const USER_DEVICES_TTL_SECONDS = 30 * 60; // cache de dispositivos por cuenta (evita consultas USync)
 const RECONNECT_BASE_MS = 3000;
 const RECONNECT_MAX_MS = 30000;
 const BUSY_STATUSES = ['connecting', 'qr', 'connected', 'reconnecting'];
@@ -38,7 +42,9 @@ function getSession(accountId) {
       reconnectAttempts: 0,
       reconnectTimer: null,
       processedIds: new Set(),
-      busyChats: new Set(),
+      chats: createChatQueues(),
+      groupMetadataCache: createGroupMetadataCache(),
+      userDevicesCache: new NodeCache({ stdTTL: USER_DEVICES_TTL_SECONDS, useClones: false }),
       lastReplyByTarget: new Map(),
     });
   }
@@ -129,6 +135,10 @@ async function connect(account) {
     markOnlineOnConnect: false,
     syncFullHistory: false,
     generateHighQualityLinkPreview: false,
+    // Metadatos de grupo desde memoria: evita la consulta de red antes de cada envío.
+    cachedGroupMetadata: async (jid) => session.groupMetadataCache.get(jid),
+    // Lista de dispositivos de participantes con TTL de 30 min (menos consultas USync).
+    userDevicesCache: session.userDevicesCache,
   });
   session.sock = sock;
 
@@ -142,6 +152,16 @@ async function connect(account) {
     handleMessages(account.id, event).catch((error) => {
       addLog('error', `[${account.label}] Error procesando mensajes: ${error?.message ?? error}`);
     });
+  });
+  // Mantiene fresco el cache de metadatos de grupo sin consultarlo en cada envío.
+  sock.ev.on('groups.upsert', (metadatas = []) => {
+    for (const metadata of metadatas) session.groupMetadataCache.set(metadata);
+  });
+  sock.ev.on('groups.update', (metadatas = []) => {
+    session.groupMetadataCache.merge(metadatas);
+  });
+  sock.ev.on('group-participants.update', ({ id } = {}) => {
+    session.groupMetadataCache.invalidate(id);
   });
 }
 
@@ -165,6 +185,11 @@ async function handleConnectionUpdate(accountId, update) {
     session.reconnectAttempts = 0;
     setStatus(account, 'connected', 'Conectado a WhatsApp');
     addLog('success', `[${account.label}] WhatsApp conectado correctamente.`);
+    // Precalienta el cache de grupos en una sola consulta (best-effort).
+    session.groupMetadataCache.clear();
+    session.sock?.groupFetchAllParticipating?.().catch(() => {
+      // Si falla, el cache se llena con los envíos normales.
+    });
   }
 
   if (connection === 'close') {
@@ -283,6 +308,8 @@ export async function removeAccountSession(id) {
     session.sock = null;
   }
   await clearAuthFolder(id);
+  session.groupMetadataCache.clear();
+  session.userDevicesCache?.close?.();
   sessions.delete(id);
   emitAccounts();
 }
@@ -332,77 +359,85 @@ async function handleMessages(accountId, { messages, type }) {
   const session = getSession(accountId);
   const { humanize } = getSettings();
 
-  for (const message of messages) {
-    if (!message?.key?.id) continue;
+  // Chats distintos se atienden en paralelo; cada chat conserva su orden por cola.
+  await Promise.allSettled(
+    messages.map((message) => processMessage(account, session, message, targets, humanize)),
+  );
+}
 
-    // Evita responder dos veces el mismo mensaje (reintentos / duplicados).
-    if (session.processedIds.has(message.key.id)) continue;
-    session.processedIds.add(message.key.id);
-    if (session.processedIds.size > 1000) session.processedIds.clear();
+async function processMessage(account, session, message, targets, humanize) {
+  if (!message?.key?.id) return;
+  const receivedAt = Date.now();
 
-    // Anti-baneo: nunca responder a mensajes antiguos (historial).
-    const timestampMs = Number(message.messageTimestamp) * 1000;
-    if (timestampMs && Date.now() - timestampMs > MAX_MESSAGE_AGE_MS) continue;
+  // Evita responder dos veces el mismo mensaje (reintentos / duplicados).
+  if (session.processedIds.has(message.key.id)) return;
+  session.processedIds.add(message.key.id);
+  if (session.processedIds.size > 1000) session.processedIds.clear();
 
-    const jid = message.key.remoteJid;
-    const author = describeAuthor(message.key);
-    const result = evaluateMessage(message, targets);
+  // Anti-baneo: nunca responder a mensajes antiguos (historial).
+  const timestampMs = Number(message.messageTimestamp) * 1000;
+  if (timestampMs && Date.now() - timestampMs > MAX_MESSAGE_AGE_MS) return;
 
-    if (!result.pass) {
-      const text = extractText(message.message);
-      const authorTargets = targets.filter((target) => matchesTargetUser(message.key, target.targetUser));
+  const jid = message.key.remoteJid;
+  const author = describeAuthor(message.key);
+  const result = evaluateMessage(message, targets);
 
-      if (result.reason === 'usuario-no-objetivo' && text) {
-        // El autor tiene registros, pero en otra cuenta de WhatsApp.
-        const matchesElsewhere = getTargets().some(
-          (target) => matchesTargetUser(message.key, target.targetUser) && matchesAnyKeyword(text, targetKeywords(target)),
-        );
-        if (matchesElsewhere) {
-          addLog('warn', `[${account.label}] ${author} tiene registros en otra cuenta de WhatsApp; este número no responderá. Se ignora.`);
-        } else if (containsAnyKeyword(text, targets)) {
-          addLog('warn', `[${account.label}] Mensaje con palabra clave de un número no registrado (${author}) en ${jid}. Se ignora.`);
+  if (!result.pass) {
+    const text = extractText(message.message);
+    const authorTargets = targets.filter((target) => matchesTargetUser(message.key, target.targetUser));
+
+    if (result.reason === 'usuario-no-objetivo' && text) {
+      // El autor tiene registros, pero en otra cuenta de WhatsApp.
+      const matchesElsewhere = getTargets().some(
+        (target) => matchesTargetUser(message.key, target.targetUser) && matchesAnyKeyword(text, targetKeywords(target)),
+      );
+      if (matchesElsewhere) {
+        addLog('warn', `[${account.label}] ${author} tiene registros en otra cuenta de WhatsApp; este número no responderá. Se ignora.`);
+      } else if (containsAnyKeyword(text, targets)) {
+        addLog('warn', `[${account.label}] Mensaje con palabra clave de un número no registrado (${author}) en ${jid}. Se ignora.`);
+      }
+    } else if (result.reason === 'sin-palabra-clave' && authorTargets.length > 0) {
+      addLog('info', `[${account.label}] Bot ignorando mensaje de ${author}: no contiene la palabra clave.`);
+    } else if (result.reason === 'otro-grupo') {
+      addLog('info', `[${account.label}] Palabra clave de ${author} ignorada: el grupo no coincide con su registro.`);
+    } else if (result.reason === 'registro-desactivado') {
+      addLog('warn', `[${account.label}] Coincidencia con ${author}, pero su registro está desactivado. Actívalo en el panel para que responda.`);
+    }
+    return;
+  }
+
+  const { target } = result;
+  const who = target.label ? `${target.label} (${author})` : author;
+
+  // El registro pertenece a esta cuenta; se responde con su configuración.
+  addLog('success', `[${account.label}] Mensaje detectado de ${who} con la palabra clave${result.keyword ? ` “${result.keyword}”` : ''}.`);
+
+  // Cola por chat: respuestas del mismo chat en orden (hasta 3 pendientes);
+  // chats distintos se procesan en paralelo.
+  try {
+    await session.chats.run(jid, async () => {
+      // El límite de frecuencia solo aplica en Modo humano.
+      if (humanize) {
+        const lastReplyAt = session.lastReplyByTarget.get(target.id) ?? 0;
+        if (Date.now() - lastReplyAt < MIN_REPLY_INTERVAL_MS) {
+          addLog('warn', `[${account.label}] Modo humano: se omite una respuesta seguida al mismo registro (límite de 15 s).`);
+          return;
         }
-      } else if (result.reason === 'sin-palabra-clave' && authorTargets.length > 0) {
-        addLog('info', `[${account.label}] Bot ignorando mensaje de ${author}: no contiene la palabra clave.`);
-      } else if (result.reason === 'otro-grupo') {
-        addLog('info', `[${account.label}] Palabra clave de ${author} ignorada: el grupo no coincide con su registro.`);
-      } else if (result.reason === 'registro-desactivado') {
-        addLog('warn', `[${account.label}] Coincidencia con ${author}, pero su registro está desactivado. Actívalo en el panel para que responda.`);
       }
-      continue;
-    }
 
-    const { target } = result;
-    const who = target.label ? `${target.label} (${author})` : author;
-
-    // El registro pertenece a esta cuenta; se responde con su configuración.
-    addLog('success', `[${account.label}] Mensaje detectado de ${who} con la palabra clave${result.keyword ? ` “${result.keyword}”` : ''}.`);
-
-    // Anti-baneo: no solapar respuestas en el mismo chat.
-    if (session.busyChats.has(jid)) {
-      addLog('warn', `[${account.label}] Ya hay una respuesta en curso en este chat. Se omite este mensaje.`);
-      continue;
-    }
-
-    // El límite de frecuencia solo aplica en Modo humano.
-    // Con respuesta inmediata (por defecto) no se limita ningún mensaje.
-    if (humanize) {
-      const lastReplyAt = session.lastReplyByTarget.get(target.id) ?? 0;
-      if (Date.now() - lastReplyAt < MIN_REPLY_INTERVAL_MS) {
-        addLog('warn', `[${account.label}] Modo humano: se omite una respuesta seguida al mismo registro (límite de 15 s).`);
-        continue;
-      }
-    }
-
-    session.busyChats.add(jid);
-    session.lastReplyByTarget.set(target.id, Date.now());
-    try {
+      session.lastReplyByTarget.set(target.id, Date.now());
       await sendReply(session.sock, jid, target.response, message);
-      addLog('success', `[${account.label}] Respuesta enviada a ${who} citando el mensaje original.`);
-    } catch (error) {
+
+      const elapsed = Date.now() - receivedAt;
+      const serverDelta = timestampMs ? Math.max(0, Date.now() - timestampMs) : null;
+      const delivery = serverDelta === null ? '' : ` · WhatsApp→bot ~${serverDelta} ms`;
+      addLog('success', `[${account.label}] Respuesta enviada a ${who} en ${elapsed} ms${delivery}${humanize ? ' · incluye modo humano' : ''}.`);
+    });
+  } catch (error) {
+    if (error instanceof QueueFullError) {
+      addLog('warn', `[${account.label}] Cola del chat llena para ${who}; se omite este mensaje.`);
+    } else {
       addLog('error', `[${account.label}] No se pudo enviar la respuesta: ${error?.message ?? error}`);
-    } finally {
-      session.busyChats.delete(jid);
     }
   }
 }
