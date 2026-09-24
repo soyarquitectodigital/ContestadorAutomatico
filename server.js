@@ -275,7 +275,7 @@ app.post('/api/targets', async (req, res) => {
     const problem = accountError(req.body);
     if (problem) return res.status(400).json({ error: problem, errors: [problem] });
     const target = await createTarget(req.body ?? {});
-    addLog('success', `Registro agregado: ${target.label || `+${target.targetUser}`} (palabra clave “${target.keyword}”).`);
+    addLog('success', `Registro agregado: ${target.label || `+${target.targetUser}`} (palabras clave: ${target.keywords.map((k) => `“${k}”`).join(', ')}).`);
     res.status(201).json(target);
   } catch (error) {
     sendError(res, error);
@@ -286,8 +286,8 @@ app.post('/api/targets/bulk', async (req, res) => {
   try {
     const problem = accountError(req.body);
     if (problem) return res.status(400).json({ error: problem, errors: [problem] });
-    const { entries, keyword, response, groupJid, label, accountId } = req.body ?? {};
-    const result = await createTargetsBulk({ entries, keyword, response, groupJid, label, accountId });
+    const { entries, keywords, keyword, response, groupJid, label, accountId } = req.body ?? {};
+    const result = await createTargetsBulk({ entries, keywords, keyword, response, groupJid, label, accountId });
     if (result.created.length > 0) {
       const skippedText = result.skipped.length > 0 ? `, ${result.skipped.length} omitido(s)` : '';
       addLog('success', `Carga masiva: ${result.created.length} registro(s) agregado(s)${skippedText}.`);
@@ -303,7 +303,7 @@ app.put('/api/targets/:id', async (req, res) => {
     const problem = accountError(req.body);
     if (problem) return res.status(400).json({ error: problem, errors: [problem] });
     const target = await updateTarget(req.params.id, req.body ?? {});
-    addLog('info', `Registro actualizado: ${target.label || `+${target.targetUser}`} (palabra clave “${target.keyword}”).`);
+    addLog('info', `Registro actualizado: ${target.label || `+${target.targetUser}`} (palabras clave: ${target.keywords.map((k) => `“${k}”`).join(', ')}).`);
     res.json(target);
   } catch (error) {
     sendError(res, error);

@@ -40,14 +40,35 @@ test('initConfig migra el formato antiguo de un solo registro', async () => {
   assert.equal(targets[0].targetUser, '584241234567');
   assert.equal(targets[0].enabled, true);
   assert.ok(targets[0].id);
+  assert.deepEqual(targets[0].keywords, ['flores amarillas']);
 
   // La migración se persiste en el formato nuevo.
   const saved = JSON.parse(await fs.readFile(configFile, 'utf8'));
-  assert.equal(saved.version, 2);
+  assert.equal(saved.version, 3);
   assert.equal(saved.targets.length, 1);
 });
 
-test('createTarget normaliza número, grupo y espacios', async () => {
+test('initConfig migra keyword (v2) a keywords y persiste la versión nueva', async () => {
+  await fs.writeFile(
+    configFile,
+    JSON.stringify({
+      version: 2,
+      targets: [
+        { targetUser: '584241234567', keyword: 'flores amarillas', response: 'ok', groupJid: '' },
+      ],
+      settings: { humanize: false },
+    }),
+  );
+  const targets = await config.initConfig();
+  assert.deepEqual(targets[0].keywords, ['flores amarillas']);
+  assert.equal(targets[0].keyword, undefined);
+
+  const saved = JSON.parse(await fs.readFile(configFile, 'utf8'));
+  assert.equal(saved.version, 3);
+  assert.deepEqual(saved.targets[0].keywords, ['flores amarillas']);
+});
+
+test('createTarget normaliza número, grupo y palabras clave', async () => {
   await fs.rm(configFile, { force: true });
   await config.initConfig();
 
@@ -55,25 +76,26 @@ test('createTarget normaliza número, grupo y espacios', async () => {
     label: '  Cliente María  ',
     targetUser: '+58 424-123.4567',
     groupJid: '1234567890-123456',
-    keyword: '  flores amarillas ',
+    keywords: ['  flores amarillas ', 'FLORES AMARILLAS', 'ramos', '   '],
     response: ' Yo quiero una ',
   });
 
   assert.equal(created.label, 'Cliente María');
   assert.equal(created.targetUser, '584241234567');
   assert.equal(created.groupJid, '1234567890-123456@g.us');
-  assert.equal(created.keyword, 'flores amarillas');
+  assert.deepEqual(created.keywords, ['flores amarillas', 'ramos']);
   assert.equal(created.response, 'Yo quiero una');
   assert.equal(created.enabled, true);
 
   const persisted = JSON.parse(await fs.readFile(configFile, 'utf8'));
   assert.equal(persisted.targets.length, 1);
   assert.equal(persisted.targets[0].id, created.id);
+  assert.deepEqual(persisted.targets[0].keywords, ['flores amarillas', 'ramos']);
 });
 
 test('createTarget rechaza datos inválidos con detalle por campo', async () => {
   await assert.rejects(
-    () => config.createTarget({ targetUser: '123', keyword: '', response: '' }),
+    () => config.createTarget({ targetUser: '123', keywords: [], response: '' }),
     (error) => {
       assert.ok(Array.isArray(error.validation));
       assert.ok(error.validation.length >= 3);
@@ -88,19 +110,32 @@ test('createTarget rechaza duplicados (número + grupo + palabra clave)', async 
       config.createTarget({
         targetUser: '584241234567',
         groupJid: '1234567890-123456@g.us',
-        keyword: 'FLORES AMARILLAS',
+        keywords: ['FLORES AMARILLAS'],
         response: 'otra',
       }),
     /Ya existe un registro/,
   );
 });
 
-test('createTarget permite otro grupo o palabra clave distinta', async () => {
+test('createTarget rechaza un registro con alguna palabra clave repetida', async () => {
+  await assert.rejects(
+    () =>
+      config.createTarget({
+        targetUser: '584241234567',
+        groupJid: '1234567890-123456@g.us',
+        keywords: ['ramos', 'flores amarillas'],
+        response: 'otra',
+      }),
+    /Ya existe un registro/,
+  );
+});
+
+test('createTarget permite otro grupo o palabras clave distintas', async () => {
   const second = await config.createTarget({
     label: 'Otro grupo',
     targetUser: '584241234567',
     groupJid: '',
-    keyword: 'caramelos',
+    keywords: ['caramelos'],
     response: 'Yo quiero caramelos',
   });
   assert.equal(second.targetUser, '584241234567');
@@ -156,7 +191,7 @@ test('createTargetsBulk agrega varios y reporta omitidos', async () => {
       { targetUser: '123' },
       { targetUser: '584241234567' },
     ],
-    keyword: 'caramelos',
+    keywords: ['caramelos', 'dulces'],
     response: 'Yo quiero caramelos',
     groupJid: '',
     label: 'Cliente',
@@ -165,6 +200,7 @@ test('createTargetsBulk agrega varios y reporta omitidos', async () => {
   assert.equal(result.created.length, 2);
   assert.equal(result.created[0].label, 'Ana');
   assert.equal(result.created[1].label, 'Cliente');
+  assert.deepEqual(result.created[0].keywords, ['caramelos', 'dulces']);
   assert.equal(result.skipped.length, 3);
   assert.match(result.skipped[0].reason, /repetido/i);
   assert.match(result.skipped[1].reason, /dígitos|número/i);
@@ -175,24 +211,24 @@ test('createTargetsBulk agrega varios y reporta omitidos', async () => {
   assert.equal(persisted.targets.length, 3);
 });
 
-test('createTargetsBulk valida lista vacía y comparte grupo/palabra clave', async () => {
-  await assert.rejects(() => config.createTargetsBulk({ entries: [], keyword: 'x', response: 'y' }), /al menos un número/);
+test('createTargetsBulk valida lista vacía y comparte grupo/palabras clave', async () => {
+  await assert.rejects(() => config.createTargetsBulk({ entries: [], keywords: ['x'], response: 'y' }), /al menos un número/);
 
   const result = await config.createTargetsBulk({
     entries: ['584999111111', '584999222222'],
-    keyword: 'orquídeas',
+    keywords: ['orquídeas'],
     response: 'Yo quiero orquídeas',
     groupJid: '1234567890-123456',
   });
   assert.equal(result.created.length, 2);
   assert.equal(result.created[0].groupJid, '1234567890-123456@g.us');
-  assert.equal(result.created[1].keyword, 'orquídeas');
+  assert.deepEqual(result.created[1].keywords, ['orquídeas']);
 });
 
 test('los registros guardan la cuenta asignada (CRUD multi-cuenta)', async () => {
   const assigned = await config.createTarget({
     targetUser: '584777111222',
-    keyword: 'prueba-cuenta',
+    keywords: ['prueba-cuenta'],
     response: 'ok',
     accountId: 'cuenta-1',
   });
@@ -200,7 +236,7 @@ test('los registros guardan la cuenta asignada (CRUD multi-cuenta)', async () =>
 
   const anyAccount = await config.createTarget({
     targetUser: '584777333444',
-    keyword: 'prueba-cualquiera',
+    keywords: ['prueba-cualquiera'],
     response: 'ok',
   });
   assert.equal(anyAccount.accountId, '');
@@ -230,4 +266,17 @@ test('settings: modo humano desactivado por defecto y configurable', async () =>
   // El ajuste sobrevive un reinicio.
   await config.initConfig();
   assert.equal(config.getSettings().humanize, true);
+});
+
+test('createTarget acepta el formato antiguo keyword (string separado por comas)', async () => {
+  await fs.rm(configFile, { force: true });
+  await config.initConfig();
+
+  const created = await config.createTarget({
+    targetUser: '584555123456',
+    keyword: 'orquídeas, rosas',
+    response: 'ok',
+  });
+
+  assert.deepEqual(created.keywords, ['orquídeas', 'rosas']);
 });

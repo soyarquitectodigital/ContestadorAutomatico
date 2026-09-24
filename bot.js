@@ -6,7 +6,7 @@ import QRCode from 'qrcode';
 import { getSettings, getTargets } from './lib/config.js';
 import { accountAuthFolder, getAccount, getAccounts } from './lib/accounts.js';
 import { addLog } from './lib/logger.js';
-import { containsAnyKeyword, containsKeyword, describeAuthor, evaluateMessage, extractText, matchesTargetUser } from './lib/filters.js';
+import { containsAnyKeyword, matchesAnyKeyword, describeAuthor, evaluateMessage, extractText, matchesTargetUser, targetKeywords } from './lib/filters.js';
 
 export const botEvents = new EventEmitter();
 
@@ -357,7 +357,7 @@ async function handleMessages(accountId, { messages, type }) {
       if (result.reason === 'usuario-no-objetivo' && text) {
         // El autor tiene registros, pero en otra cuenta de WhatsApp.
         const matchesElsewhere = getTargets().some(
-          (target) => matchesTargetUser(message.key, target.targetUser) && containsKeyword(text, target.keyword),
+          (target) => matchesTargetUser(message.key, target.targetUser) && matchesAnyKeyword(text, targetKeywords(target)),
         );
         if (matchesElsewhere) {
           addLog('warn', `[${account.label}] ${author} tiene registros en otra cuenta de WhatsApp; este número no responderá. Se ignora.`);
@@ -369,7 +369,7 @@ async function handleMessages(accountId, { messages, type }) {
       } else if (result.reason === 'otro-grupo') {
         addLog('info', `[${account.label}] Palabra clave de ${author} ignorada: el grupo no coincide con su registro.`);
       } else if (result.reason === 'registro-desactivado') {
-        addLog('warn', `[${account.label}] Coincidencia con ${author}, pero su registro está desactivado.`);
+        addLog('warn', `[${account.label}] Coincidencia con ${author}, pero su registro está desactivado. Actívalo en el panel para que responda.`);
       }
       continue;
     }
@@ -388,7 +388,7 @@ async function handleMessages(accountId, { messages, type }) {
       if (repliedGlobally.size > 1000) repliedGlobally.clear();
     }
 
-    addLog('success', `[${account.label}] Mensaje detectado de ${who} con la palabra clave.`);
+    addLog('success', `[${account.label}] Mensaje detectado de ${who} con la palabra clave${result.keyword ? ` “${result.keyword}”` : ''}.`);
 
     // Anti-baneo: no solapar respuestas en el mismo chat.
     if (session.busyChats.has(jid)) {

@@ -8,14 +8,16 @@ import {
   evaluateMessage,
   extractText,
   isGroupJid,
+  matchesAnyKeyword,
   matchesTargetUser,
+  targetKeywords,
 } from '../lib/filters.js';
 
 const TARGET_BASE = {
   id: 't1',
   label: 'Cliente',
   targetUser: '584241234567',
-  keyword: 'flores amarillas',
+  keywords: ['flores amarillas'],
   response: 'Yo quiero una',
   groupJid: '',
   enabled: true,
@@ -81,6 +83,32 @@ test('Filtro 3: palabra clave sin distinguir mayúsculas ni acentos', () => {
   assert.equal(result.reason, 'sin-palabra-clave');
 });
 
+test('Filtro 3: un registro con varias palabras clave responde a cualquiera', () => {
+  const target = { ...TARGET_BASE, keywords: ['flores amarillas', 'ramos', 'bouquet'] };
+
+  const first = evaluateMessage(buildMessage({ text: '¿Tienen ramos?' }), [target]);
+  assert.equal(first.pass, true);
+  assert.equal(first.target.id, 't1');
+  assert.equal(first.keyword, 'ramos');
+
+  const second = evaluateMessage(buildMessage({ text: 'Quiero un BOUQUET' }), [target]);
+  assert.equal(second.pass, true);
+  assert.equal(second.keyword, 'bouquet');
+
+  const none = evaluateMessage(buildMessage({ text: 'Hola, buenos días' }), [target]);
+  assert.equal(none.pass, false);
+  assert.equal(none.reason, 'sin-palabra-clave');
+
+  assert.equal(matchesAnyKeyword('dame un ramo', target.keywords), false);
+  assert.equal(matchesAnyKeyword('dame un ramos', target.keywords), true);
+});
+
+test('targetKeywords tolera registros del formato antiguo (keyword)', () => {
+  assert.deepEqual(targetKeywords({ keyword: 'flores' }), ['flores']);
+  assert.deepEqual(targetKeywords({ keywords: ['a', 'b'] }), ['a', 'b']);
+  assert.deepEqual(targetKeywords({}), []);
+});
+
 test('Filtro 4: grupo restringido por registro', () => {
   const target = { ...TARGET_BASE, id: 't2', groupJid: '1111111111-111111@g.us' };
 
@@ -105,9 +133,9 @@ test('Filtro 5: registro desactivado no responde', () => {
 
 test('Varios registros: responde el que coincide por número y palabra clave', () => {
   const targets = [
-    { ...TARGET_BASE, id: 'a', targetUser: '584241234567', keyword: 'flores amarillas', response: 'A' },
-    { ...TARGET_BASE, id: 'b', targetUser: '584241234567', keyword: 'caramelos', response: 'B' },
-    { ...TARGET_BASE, id: 'c', targetUser: '584111111111', keyword: 'flores amarillas', response: 'C' },
+    { ...TARGET_BASE, id: 'a', targetUser: '584241234567', keywords: ['flores amarillas'], response: 'A' },
+    { ...TARGET_BASE, id: 'b', targetUser: '584241234567', keywords: ['caramelos'], response: 'B' },
+    { ...TARGET_BASE, id: 'c', targetUser: '584111111111', keywords: ['flores amarillas'], response: 'C' },
   ];
 
   const first = evaluateMessage(buildMessage({ text: 'quiero flores amarillas' }), targets);
@@ -125,7 +153,7 @@ test('Varios registros: responde el que coincide por número y palabra clave', (
 });
 
 test('containsAnyKeyword detecta palabras clave de cualquier registro', () => {
-  const targets = [TARGET_BASE, { ...TARGET_BASE, id: 'x', keyword: 'caramelos' }];
+  const targets = [TARGET_BASE, { ...TARGET_BASE, id: 'x', keywords: ['caramelos'] }];
   assert.equal(containsAnyKeyword('dame caramelos', targets), true);
   assert.equal(containsAnyKeyword('nada de eso', targets), false);
 });

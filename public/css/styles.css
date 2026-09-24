@@ -537,6 +537,74 @@ input.invalid, textarea.invalid { border-color: var(--danger); box-shadow: 0 0 0
 .modal-form .row { margin-top: 0; }
 .modal-form .modal-actions { margin-top: 8px; }
 
+/* ---- Campo de palabras clave (chips) ---- */
+.keyword-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.keyword-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.14);
+}
+
+.keyword-box.invalid { border-color: var(--danger); box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.1); }
+
+.keyword-box input {
+  flex: 1 1 160px;
+  width: auto;
+  min-width: 140px;
+  border: none;
+  padding: 5px 6px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.keyword-box input:focus { border: none; box-shadow: none; }
+
+.keyword-chips { display: contents; }
+
+.keyword-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 6px 5px 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-2);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.keyword-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.keyword-chip-remove:hover { background: var(--danger); color: #fff; }
+
 /* ---- Pestañas del editor ---- */
 .modal-tabs {
   display: inline-flex;

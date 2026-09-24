@@ -34,6 +34,7 @@ let groupsCache = [];
 let editingId = null;
 let editingAccountId = null;
 let modalMode = 'single';
+let modalKeywords = [];
 const expandedAccounts = new Set();
 let logs = [];
 let logFilter = 'all';
@@ -213,7 +214,9 @@ function accountRow(account) {
   row.className = 'account-row';
   row.dataset.id = account.id;
 
-  const recordCount = targets.filter((target) => (target.accountId || '') === account.id).length;
+  const accountTargets = targets.filter((target) => (target.accountId || '') === account.id);
+  const recordCount = accountTargets.length;
+  const disabledCount = accountTargets.filter((target) => !target.enabled).length;
   if (['qr', 'connecting', 'reconnecting'].includes(account.status)) expandedAccounts.add(account.id);
   const isExpanded = expandedAccounts.has(account.id);
   row.classList.toggle('expanded', isExpanded);
@@ -238,7 +241,7 @@ function accountRow(account) {
 
   const detail = document.createElement('span');
   detail.className = 'account-meta';
-  detail.textContent = `${account.detail || 'Sin conectar'} · ${recordCount} registro(s)`;
+  detail.textContent = `${account.detail || 'Sin conectar'} · ${recordCount} registro(s)${disabledCount > 0 ? ` (${disabledCount} desactivado${disabledCount > 1 ? 's' : ''})` : ''}`;
 
   main.append(title, detail);
 
@@ -433,6 +436,69 @@ function fillAccountOptions(selectedId = '') {
   select.value = accounts.some((account) => account.id === selectedId) ? selectedId : '';
 }
 
+/* ---- Palabras clave (chips) ---- */
+function keywordKey(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function targetKeywords(target) {
+  if (Array.isArray(target?.keywords)) return target.keywords.filter(Boolean);
+  if (target?.keyword) return [target.keyword];
+  return [];
+}
+
+function renderKeywordChips() {
+  const container = el('keywordChips');
+  container.innerHTML = '';
+  modalKeywords.forEach((keyword, index) => {
+    const chip = document.createElement('span');
+    chip.className = 'keyword-chip';
+
+    const text = document.createElement('span');
+    text.textContent = keyword;
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'keyword-chip-remove';
+    remove.setAttribute('aria-label', `Quitar palabra clave ${keyword}`);
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      modalKeywords.splice(index, 1);
+      renderKeywordChips();
+      el('inputKeyword').focus();
+    });
+
+    chip.append(text, remove);
+    container.appendChild(chip);
+  });
+  container.classList.toggle('hidden', modalKeywords.length === 0);
+  if (modalKeywords.length > 0) markKeywordInvalid(false);
+}
+
+function addKeyword(value) {
+  const keyword = String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const key = keywordKey(keyword);
+  if (!key) return;
+  if (modalKeywords.some((item) => keywordKey(item) === key)) return;
+  modalKeywords.push(keyword);
+  renderKeywordChips();
+}
+
+// Toma lo escrito en el campo (aunque no se haya pulsado Enter) y lo agrega.
+function collectKeywords() {
+  const input = el('inputKeyword');
+  if (input.value.trim()) {
+    addKeyword(input.value);
+    input.value = '';
+  }
+  return [...modalKeywords];
+}
+
 function targetRow(target) {
   const row = document.createElement('div');
   row.className = `target-row${target.enabled ? '' : ' disabled'}`;
@@ -466,10 +532,17 @@ function targetRow(target) {
     title.textContent = `+${target.targetUser}`;
   }
 
+  if (!target.enabled) {
+    const badge = document.createElement('span');
+    badge.className = 'badge badge-sm badge-warn';
+    badge.textContent = 'Desactivado';
+    title.appendChild(badge);
+  }
+
   const meta = document.createElement('p');
   meta.className = 'target-meta';
   const keyword = document.createElement('strong');
-  keyword.textContent = `“${target.keyword}”`;
+  keyword.textContent = targetKeywords(target).map((item) => `“${item}”`).join(', ');
   meta.append(keyword, ` → ${target.response}`);
   if (target.groupJid) meta.append(` · Grupo: ${groupLabel(target.groupJid)}`);
 
@@ -575,7 +648,9 @@ function openTargetModal(target = null, mode = 'single', presetAccountId = null)
   el('inputLabel').value = target?.label ?? '';
   el('inputNumber').value = target?.targetUser ?? '';
   el('inputGroup').value = target?.groupJid ?? '';
-  el('inputKeyword').value = target?.keyword ?? '';
+  modalKeywords = targetKeywords(target);
+  renderKeywordChips();
+  el('inputKeyword').value = '';
   el('inputResponse').value = target?.response ?? '';
   el('inputBulk').value = '';
   el('bulkReport').classList.add('hidden');
@@ -653,10 +728,14 @@ function buildTargetPayload() {
     label: el('inputLabel').value.trim(),
     targetUser: el('inputNumber').value.replace(/\D/g, ''),
     groupJid: el('inputGroup').value.trim().toLowerCase(),
-    keyword: el('inputKeyword').value.trim(),
+    keywords: collectKeywords(),
     response: el('inputResponse').value.trim(),
     accountId: el('inputAccount').value,
   };
+}
+
+function markKeywordInvalid(invalid) {
+  el('keywordBox').classList.toggle('invalid', invalid);
 }
 
 function showTargetErrors(errors) {
@@ -671,6 +750,7 @@ function showTargetErrors(errors) {
       errorBox.classList.add('hidden');
       input.classList.remove('invalid');
     }
+    if (field === 'keyword') markKeywordInvalid(Boolean(errors[field]));
   }
 }
 
@@ -681,7 +761,9 @@ function targetFormErrors(values) {
   } else if (values.targetUser.length < 8 || values.targetUser.length > 15) {
     errors.number = 'Debe tener entre 8 y 15 dígitos, incluyendo el código de país.';
   }
-  if (!values.keyword) errors.keyword = 'La palabra clave no puede estar vacía.';
+  if (!values.keywords || values.keywords.length === 0) {
+    errors.keyword = 'Agrega al menos una palabra clave.';
+  }
   if (!values.response) errors.response = 'La respuesta no puede estar vacía.';
   if (values.groupJid && !/^[\d-]+@g\.us$/i.test(values.groupJid)) {
     errors.group = 'Formato no válido. Ejemplo: 1234567890-123456@g.us';
@@ -723,7 +805,7 @@ async function saveTarget() {
       toast(
         'success',
         editingId ? 'Registro actualizado' : 'Número registrado',
-        `${saved.label || `+${saved.targetUser}`} responderá a “${saved.keyword}”.`,
+        `${saved.label || `+${saved.targetUser}`} responderá a ${saved.keywords.map((item) => `“${item}”`).join(', ')}.`,
       );
     } catch (error) {
       toast('error', 'No se pudo guardar', error.message);
@@ -735,7 +817,7 @@ async function saveTarget() {
 async function saveBulk() {
   const entries = parseBulkLines(el('inputBulk').value);
   const shared = {
-    keyword: el('inputKeyword').value.trim(),
+    keywords: collectKeywords(),
     response: el('inputResponse').value.trim(),
     groupJid: el('inputGroup').value.trim().toLowerCase(),
     label: '',
@@ -744,7 +826,7 @@ async function saveBulk() {
 
   const errors = {};
   if (entries.length === 0) errors.bulk = 'Agrega al menos un número, uno por línea.';
-  if (!shared.keyword) errors.keyword = 'La palabra clave no puede estar vacía.';
+  if (!shared.keywords.length) errors.keyword = 'Agrega al menos una palabra clave.';
   if (!shared.response) errors.response = 'La respuesta no puede estar vacía.';
   if (shared.groupJid && !/^[\d-]+@g\.us$/i.test(shared.groupJid)) {
     errors.group = 'Formato no válido. Ejemplo: 1234567890-123456@g.us';
@@ -837,6 +919,22 @@ el('modeBulkBtn').addEventListener('click', () => {
 
 el('inputBulk').addEventListener('input', updateBulkCount);
 
+el('inputKeyword').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    // Enter agrega la palabra como etiqueta en vez de enviar el formulario.
+    event.preventDefault();
+    if (el('inputKeyword').value.trim()) {
+      addKeyword(el('inputKeyword').value);
+      el('inputKeyword').value = '';
+    }
+    return;
+  }
+  if (event.key === 'Backspace' && !el('inputKeyword').value && modalKeywords.length > 0) {
+    modalKeywords.pop();
+    renderKeywordChips();
+  }
+});
+
 el('addTargetBtn').addEventListener('click', () => openTargetModal(null, 'single'));
 
 for (const field of TARGET_FIELDS) {
@@ -844,6 +942,7 @@ for (const field of TARGET_FIELDS) {
   input.addEventListener('input', () => {
     el(`error${field[0].toUpperCase()}${field.slice(1)}`).classList.add('hidden');
     input.classList.remove('invalid');
+    if (field === 'keyword') markKeywordInvalid(false);
   });
 }
 

@@ -53,7 +53,7 @@
           <h2>Registros compartidos</h2>
           <span id="globalTargetsCount" class="badge-count">0 activos / 0</span>
         </header>
-        <p class="muted">Responden desde la primera cuenta conectada. Útil si no importa qué número conteste.</p>
+        <p class="muted">Responden desde cualquiera de las cuentas conectadas. Si varias reciben el mensaje, solo una contesta para evitar duplicados.</p>
 
         <div id="globalTargetsList" class="targets-list"></div>
         <p id="globalTargetsEmpty" class="empty-state">Sin registros compartidos.</p>
@@ -124,7 +124,7 @@
         <div id="bulkFields" class="hidden">
           <label for="inputBulk">Números (uno por línea)</label>
           <textarea id="inputBulk" class="mono" rows="6" placeholder="584241234567&#10;584111111111, Cliente Ana&#10;584222222222; Pedro" aria-describedby="hintBulk bulkCount errorBulk"></textarea>
-          <p id="hintBulk" class="hint">Formato por línea: <code>número</code> o <code>número, etiqueta</code>. Todos comparten la palabra clave y la respuesta.</p>
+          <p id="hintBulk" class="hint">Formato por línea: <code>número</code> o <code>número, etiqueta</code>. Todos comparten las palabras clave y la respuesta.</p>
           <p id="bulkCount" class="hint">Escribe al menos un número.</p>
           <p id="errorBulk" class="field-error hidden"></p>
         </div>
@@ -136,8 +136,12 @@
         </div>
 
         <div>
-          <label for="inputKeyword">Palabra clave</label>
-          <input id="inputKeyword" type="text" placeholder="flores amarillas" autocomplete="off" aria-describedby="errorKeyword">
+          <label for="inputKeyword">Palabras clave</label>
+          <div id="keywordBox" class="keyword-box">
+            <div id="keywordChips" class="keyword-chips"></div>
+            <input id="inputKeyword" type="text" placeholder="Escribe una palabra y pulsa Enter" autocomplete="off" aria-describedby="hintKeyword errorKeyword">
+          </div>
+          <p id="hintKeyword" class="hint">Puedes agregar varias. El bot responde si el mensaje contiene cualquiera de ellas.</p>
           <p id="errorKeyword" class="field-error hidden"></p>
         </div>
 
