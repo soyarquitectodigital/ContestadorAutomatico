@@ -1,0 +1,40 @@
+# Mantiene despierto el servicio de Render.
+#
+# Render suspende los servicios del plan gratuito tras ~15 minutos sin tráfico
+# entrante; un ping externo periódico lo evita. Este workflow hace ping a
+# /healthz cada 12 minutos (GitHub puede retrasar unos minutos el horario).
+#
+# Configura otra URL si cambia: Settings > Secrets and variables > Actions >
+# pestaña "Variables" > New repository variable, nombre RENDER_URL
+# (por ejemplo: https://mi-servicio.onrender.com, sin barra final).
+# Si no existe la variable, se usa la URL por defecto indicada abajo.
+#
+# Nota: en repositorios privados esto consume minutos de Actions (~40 min/día).
+# Alternativa sin consumo: un monitor externo gratuito (UptimeRobot,
+# cron-job.org) apuntando a la misma URL cada 5-10 minutos.
+name: Mantener despierto Render
+
+on:
+  schedule:
+    - cron: '*/12 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: keepalive-render
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    name: Ping a /healthz
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Despertar el servicio
+        env:
+          URL: ${{ vars.RENDER_URL || 'https://contestadorautomatico-0w6y.onrender.com' }}
+        run: |
+          URL="${URL%/}"
+          echo "Ping a $URL/healthz"
+          curl -sS --fail --max-time 90 --retry 3 --retry-delay 20 --retry-all-errors "$URL/healthz"
+          echo ""
+          echo "Servicio despierto."
