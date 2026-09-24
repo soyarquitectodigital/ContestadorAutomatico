@@ -35,7 +35,7 @@
           <h2>Números de WhatsApp</h2>
           <span id="accountsCount" class="badge-count">0 conectados / 0</span>
         </header>
-        <p class="muted">Toca un número para ver o agregar sus registros. Cada uno se vincula con su propio QR.</p>
+        <p class="muted">Toca un número para ver o agregar sus registros. Cada número se vincula con su propio QR y tiene sus propias palabras clave y respuestas, sin depender de los demás.</p>
 
         <div class="targets-toolbar">
           <button id="startAllBtn" class="btn" type="button">Conectar todas</button>
@@ -44,20 +44,6 @@
 
         <div id="accountsList" class="accounts-list"></div>
         <p id="accountsEmpty" class="empty-state">Aún no hay números de WhatsApp. Pulsa “Agregar número”.</p>
-      </article>
-
-      <!-- Paso 2: registros compartidos -->
-      <article class="card targets-card">
-        <header class="card-header">
-          <span class="step-number" id="stepNumber2">2</span>
-          <h2>Registros compartidos</h2>
-          <span id="globalTargetsCount" class="badge-count">0 activos / 0</span>
-        </header>
-        <p class="muted">Responden todas las cuentas conectadas que reciban el mensaje, con la misma respuesta. Si varias están en el mismo grupo, cada una contestará.</p>
-
-        <div id="globalTargetsList" class="targets-list"></div>
-        <p id="globalTargetsEmpty" class="empty-state">Sin registros compartidos.</p>
-        <button id="addTargetBtn" class="add-row-btn" type="button">+ Agregar registro compartido</button>
       </article>
 
       <!-- Ajustes de respuesta -->
@@ -152,7 +138,7 @@
         </div>
 
         <details id="advancedOptions" class="advanced">
-          <summary>Opciones avanzadas (etiqueta, grupo, cuenta)</summary>
+          <summary>Opciones avanzadas (etiqueta, grupo, número que responde)</summary>
           <div class="advanced-body">
             <div id="advancedLabelField">
               <label for="inputLabel">Etiqueta (opcional)</label>
@@ -169,10 +155,9 @@
             </div>
 
             <div>
-              <label for="inputAccount">Cuenta de WhatsApp que responde</label>
-              <select id="inputAccount">
-                <option value="">Cualquier cuenta conectada</option>
-              </select>
+              <label for="inputAccount">Número de WhatsApp que responde</label>
+              <select id="inputAccount"></select>
+              <p id="errorAccount" class="field-error hidden"></p>
             </div>
           </div>
         </details>

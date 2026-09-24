@@ -12,7 +12,7 @@ const STATUS_META = {
 };
 
 const MAX_LOGS = 300;
-const TARGET_FIELDS = ['number', 'group', 'keyword', 'response', 'bulk'];
+const TARGET_FIELDS = ['number', 'account', 'group', 'keyword', 'response', 'bulk'];
 const ACCOUNT_BUSY = ['connecting', 'qr', 'reconnecting'];
 
 const TOAST_ICONS = {
@@ -194,7 +194,7 @@ async function logoutAccount(account) {
 async function removeAccount(account) {
   const confirmed = await confirmDialog({
     title: 'Eliminar número de WhatsApp',
-    message: `Se eliminará “${account.label}” y su sesión vinculada. Sus registros pasarán a “cualquier cuenta”. ¿Continuar?`,
+    message: `Se eliminará “${account.label}”, su sesión vinculada y todos sus registros (palabras clave y respuestas). ¿Continuar?`,
     confirmText: 'Sí, eliminar',
     danger: true,
   });
@@ -214,7 +214,7 @@ function accountRow(account) {
   row.className = 'account-row';
   row.dataset.id = account.id;
 
-  const accountTargets = targets.filter((target) => (target.accountId || '') === account.id);
+  const accountTargets = targets.filter((target) => target.accountId === account.id);
   const recordCount = accountTargets.length;
   const disabledCount = accountTargets.filter((target) => !target.enabled).length;
   if (['qr', 'connecting', 'reconnecting'].includes(account.status)) expandedAccounts.add(account.id);
@@ -422,10 +422,6 @@ function groupLabel(jid) {
 function fillAccountOptions(selectedId = '') {
   const select = el('inputAccount');
   select.innerHTML = '';
-  const anyOption = document.createElement('option');
-  anyOption.value = '';
-  anyOption.textContent = 'Cualquier cuenta conectada';
-  select.appendChild(anyOption);
 
   for (const account of accounts) {
     const option = document.createElement('option');
@@ -433,7 +429,8 @@ function fillAccountOptions(selectedId = '') {
     option.textContent = `${account.label}${account.connected ? ' (conectada)' : ''}`;
     select.appendChild(option);
   }
-  select.value = accounts.some((account) => account.id === selectedId) ? selectedId : '';
+  const fallback = accounts[0]?.id ?? '';
+  select.value = accounts.some((account) => account.id === selectedId) ? selectedId : fallback;
 }
 
 /* ---- Palabras clave (chips) ---- */
@@ -579,7 +576,7 @@ function accountTargetsSection(account) {
   title.className = 'account-targets-title';
   title.textContent = 'Registros';
 
-  const all = targets.filter((target) => (target.accountId || '') === account.id);
+  const all = targets.filter((target) => target.accountId === account.id);
   const active = all.filter((target) => target.enabled).length;
   const count = document.createElement('span');
   count.className = 'badge-count badge-count-sm';
@@ -606,26 +603,8 @@ function accountTargetsSection(account) {
   return section;
 }
 
-function renderGlobalTargets() {
-  const list = el('globalTargetsList');
-  list.innerHTML = '';
-
-  const all = targets.filter((target) => !target.accountId);
-  all.forEach((target) => list.appendChild(targetRow(target)));
-
-  const active = all.filter((target) => target.enabled).length;
-  el('globalTargetsCount').textContent = `${active} activos / ${all.length}`;
-  el('globalTargetsEmpty').classList.toggle('hidden', all.length > 0);
-
-  const activeCount = targets.filter((target) => target.enabled).length;
-  const hasActive = activeCount > 0;
-  el('stepNumber2').textContent = hasActive ? '✓' : '2';
-  el('stepNumber2').classList.toggle('done', hasActive);
-}
-
 function renderTargets() {
   renderAccounts();
-  renderGlobalTargets();
 }
 
 async function refreshTargets() {
@@ -635,7 +614,7 @@ async function refreshTargets() {
 
 function openTargetModal(target = null, mode = 'single', presetAccountId = null) {
   editingId = target?.id ?? null;
-  const presetId = target?.accountId ?? presetAccountId ?? '';
+  const presetId = target?.accountId || presetAccountId || accounts[0]?.id || '';
   const presetAccount = accounts.find((account) => account.id === presetId);
   el('targetModalTitle').textContent = editingId
     ? 'Editar registro'
@@ -756,6 +735,7 @@ function showTargetErrors(errors) {
 
 function targetFormErrors(values) {
   const errors = {};
+  if (!values.accountId) errors.account = 'Selecciona el número de WhatsApp que responderá.';
   if (!values.targetUser) {
     errors.number = 'Introduce el número de WhatsApp.';
   } else if (values.targetUser.length < 8 || values.targetUser.length > 15) {
@@ -775,7 +755,8 @@ function mapTargetServerErrors(details) {
   const errors = {};
   for (const detail of details) {
     const text = String(detail).toLowerCase();
-    if (text.includes('número')) errors.number = detail;
+    if (text.includes('cuenta')) errors.account = detail;
+    else if (text.includes('número')) errors.number = detail;
     else if (text.includes('palabra clave')) errors.keyword = detail;
     else if (text.includes('respuesta')) errors.response = detail;
     else if (text.includes('grupo') || text.includes('jid')) errors.group = detail;
@@ -934,8 +915,6 @@ el('inputKeyword').addEventListener('keydown', (event) => {
     renderKeywordChips();
   }
 });
-
-el('addTargetBtn').addEventListener('click', () => openTargetModal(null, 'single'));
 
 for (const field of TARGET_FIELDS) {
   const input = el(`input${field[0].toUpperCase()}${field.slice(1)}`);

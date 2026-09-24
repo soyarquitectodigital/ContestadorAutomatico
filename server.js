@@ -15,11 +15,13 @@ import {
   updateTarget,
   deleteTarget,
   toggleTarget,
-  clearAccountFromTargets,
+  deleteTargetsByAccount,
+  assignUnassignedTargets,
 } from './lib/config.js';
 import {
   initAccounts,
   getAccount,
+  getAccounts,
   createAccount,
   updateAccount,
   deleteAccount,
@@ -192,6 +194,10 @@ app.post('/api/accounts', async (req, res) => {
   try {
     const account = await createAccount({ label: req.body?.label });
     addLog('info', `Número de WhatsApp agregado: ${account.label}.`);
+    const assigned = await assignUnassignedTargets(account.id);
+    if (assigned > 0) {
+      addLog('info', `Se asignaron ${assigned} registro(s) sin cuenta a “${account.label}”.`);
+    }
     res.status(201).json({ ...account, status: 'disconnected', detail: 'Sin conectar', qr: null, connected: false });
   } catch (error) {
     sendError(res, error);
@@ -213,10 +219,10 @@ app.delete('/api/accounts/:id', async (req, res) => {
     if (!account) throw new Error('Número de WhatsApp no encontrado.');
     await removeAccountSession(account.id);
     await deleteAccount(account.id);
-    const reassigned = await clearAccountFromTargets(account.id);
+    const removed = await deleteTargetsByAccount(account.id);
     addLog(
       'warn',
-      `Número de WhatsApp eliminado: ${account.label}${reassigned ? ' (sus registros pasaron a “cualquier cuenta”)' : ''}.`,
+      `Número de WhatsApp eliminado: ${account.label}${removed > 0 ? ` (se eliminaron ${removed} registro(s))` : ''}.`,
     );
     res.json({ ok: true });
   } catch (error) {
@@ -262,7 +268,8 @@ app.post('/api/bot/stop', async (req, res) => {
 // ---- CRUD de números registrados ----
 function accountError(body) {
   const accountId = typeof body?.accountId === 'string' ? body.accountId : '';
-  if (accountId && !getAccount(accountId)) return 'La cuenta de WhatsApp seleccionada no existe.';
+  if (!accountId) return 'Selecciona la cuenta de WhatsApp que responderá.';
+  if (!getAccount(accountId)) return 'La cuenta de WhatsApp seleccionada no existe.';
   return null;
 }
 
@@ -372,6 +379,15 @@ await initAccounts();
 const migrated = await migrateLegacySession();
 if (migrated) {
   addLog('info', `Sesión anterior detectada: se registró como “${migrated.label}”.`);
+}
+// Registros del formato antiguo "cualquier cuenta": se asignan al primer número
+// registrado para que cada cuenta tenga su propia configuración independiente.
+const [firstAccount] = getAccounts();
+if (firstAccount) {
+  const assigned = await assignUnassignedTargets(firstAccount.id);
+  if (assigned > 0) {
+    addLog('info', `Se asignaron ${assigned} registro(s) sin cuenta a “${firstAccount.label}”.`);
+  }
 }
 addLog(
   'info',

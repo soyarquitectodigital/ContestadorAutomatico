@@ -325,8 +325,8 @@ async function handleMessages(accountId, { messages, type }) {
   // Solo mensajes en vivo (se descarta el historial sincronizado).
   if (type !== 'notify') return;
 
-  // Registros de esta cuenta: los asignados a ella y los de "cualquier cuenta".
-  const targets = getTargets().filter((target) => !target.accountId || target.accountId === accountId);
+  // Cada cuenta solo evalúa sus propios registros (configuración independiente).
+  const targets = getTargets().filter((target) => target.accountId === accountId);
   if (targets.length === 0) return;
 
   const session = getSession(accountId);
@@ -375,7 +375,7 @@ async function handleMessages(accountId, { messages, type }) {
     const { target } = result;
     const who = target.label ? `${target.label} (${author})` : author;
 
-    // Registro compartido: responden todas las cuentas conectadas que reciban el mensaje.
+    // El registro pertenece a esta cuenta; se responde con su configuración.
     addLog('success', `[${account.label}] Mensaje detectado de ${who} con la palabra clave${result.keyword ? ` “${result.keyword}”` : ''}.`);
 
     // Anti-baneo: no solapar respuestas en el mismo chat.

@@ -74,6 +74,7 @@ test('createTarget normaliza número, grupo y palabras clave', async () => {
 
   const created = await config.createTarget({
     label: '  Cliente María  ',
+    accountId: 'acc-1',
     targetUser: '+58 424-123.4567',
     groupJid: '1234567890-123456',
     keywords: ['  flores amarillas ', 'FLORES AMARILLAS', 'ramos', '   '],
@@ -81,6 +82,7 @@ test('createTarget normaliza número, grupo y palabras clave', async () => {
   });
 
   assert.equal(created.label, 'Cliente María');
+  assert.equal(created.accountId, 'acc-1');
   assert.equal(created.targetUser, '584241234567');
   assert.equal(created.groupJid, '1234567890-123456@g.us');
   assert.deepEqual(created.keywords, ['flores amarillas', 'ramos']);
@@ -104,10 +106,18 @@ test('createTarget rechaza datos inválidos con detalle por campo', async () => 
   );
 });
 
+test('createTarget exige una cuenta de WhatsApp que responda', async () => {
+  await assert.rejects(
+    () => config.createTarget({ targetUser: '584241234567', keywords: ['x'], response: 'y' }),
+    /cuenta de WhatsApp/,
+  );
+});
+
 test('createTarget rechaza duplicados (número + grupo + palabra clave)', async () => {
   await assert.rejects(
     () =>
       config.createTarget({
+        accountId: 'acc-1',
         targetUser: '584241234567',
         groupJid: '1234567890-123456@g.us',
         keywords: ['FLORES AMARILLAS'],
@@ -121,6 +131,7 @@ test('createTarget rechaza un registro con alguna palabra clave repetida', async
   await assert.rejects(
     () =>
       config.createTarget({
+        accountId: 'acc-1',
         targetUser: '584241234567',
         groupJid: '1234567890-123456@g.us',
         keywords: ['ramos', 'flores amarillas'],
@@ -133,6 +144,7 @@ test('createTarget rechaza un registro con alguna palabra clave repetida', async
 test('createTarget permite otro grupo o palabras clave distintas', async () => {
   const second = await config.createTarget({
     label: 'Otro grupo',
+    accountId: 'acc-1',
     targetUser: '584241234567',
     groupJid: '',
     keywords: ['caramelos'],
@@ -195,6 +207,7 @@ test('createTargetsBulk agrega varios y reporta omitidos', async () => {
     response: 'Yo quiero caramelos',
     groupJid: '',
     label: 'Cliente',
+    accountId: 'acc-1',
   });
 
   assert.equal(result.created.length, 2);
@@ -219,36 +232,40 @@ test('createTargetsBulk valida lista vacía y comparte grupo/palabras clave', as
     keywords: ['orquídeas'],
     response: 'Yo quiero orquídeas',
     groupJid: '1234567890-123456',
+    accountId: 'acc-1',
   });
   assert.equal(result.created.length, 2);
   assert.equal(result.created[0].groupJid, '1234567890-123456@g.us');
   assert.deepEqual(result.created[1].keywords, ['orquídeas']);
 });
 
-test('los registros guardan la cuenta asignada (CRUD multi-cuenta)', async () => {
+test('los registros pertenecen a una cuenta y se eliminan con ella', async () => {
   const assigned = await config.createTarget({
+    accountId: 'cuenta-1',
     targetUser: '584777111222',
     keywords: ['prueba-cuenta'],
     response: 'ok',
-    accountId: 'cuenta-1',
   });
   assert.equal(assigned.accountId, 'cuenta-1');
 
-  const anyAccount = await config.createTarget({
+  const other = await config.createTarget({
+    accountId: 'cuenta-2',
     targetUser: '584777333444',
-    keywords: ['prueba-cualquiera'],
+    keywords: ['prueba-cuenta'],
     response: 'ok',
   });
-  assert.equal(anyAccount.accountId, '');
+  assert.equal(other.accountId, 'cuenta-2');
 
-  // Al eliminar una cuenta, sus registros pasan a "cualquier cuenta".
-  const changed = await config.clearAccountFromTargets('cuenta-1');
-  assert.equal(changed, true);
-  const reassigned = config.getTargets().find((target) => target.id === assigned.id);
-  assert.equal(reassigned.accountId, '');
+  // Al eliminar una cuenta se eliminan sus registros.
+  const removed = await config.deleteTargetsByAccount('cuenta-1');
+  assert.equal(removed, 1);
+  assert.equal(config.getTargets().some((target) => target.id === assigned.id), false);
 
-  const noChange = await config.clearAccountFromTargets('cuenta-1');
-  assert.equal(noChange, false);
+  // La otra cuenta conserva los suyos aunque usen la misma palabra clave.
+  assert.ok(config.getTargets().some((target) => target.id === other.id));
+
+  const noChange = await config.deleteTargetsByAccount('cuenta-1');
+  assert.equal(noChange, 0);
 });
 
 test('settings: modo humano desactivado por defecto y configurable', async () => {
@@ -273,10 +290,61 @@ test('createTarget acepta el formato antiguo keyword (string separado por comas)
   await config.initConfig();
 
   const created = await config.createTarget({
+    accountId: 'acc-1',
     targetUser: '584555123456',
     keyword: 'orquídeas, rosas',
     response: 'ok',
   });
 
   assert.deepEqual(created.keywords, ['orquídeas', 'rosas']);
+});
+
+test('la misma configuración en números distintos es válida (independientes)', async () => {
+  await fs.rm(configFile, { force: true });
+  await config.initConfig();
+
+  await config.createTarget({
+    accountId: 'acc-1',
+    targetUser: '584241234567',
+    keywords: ['flores', 'ramos'],
+    response: 'Respuesta A',
+  });
+  const other = await config.createTarget({
+    accountId: 'acc-2',
+    targetUser: '584241234567',
+    keywords: ['flores', 'ramos'],
+    response: 'Respuesta B',
+  });
+
+  assert.equal(other.accountId, 'acc-2');
+  assert.equal(other.response, 'Respuesta B');
+  assert.equal(config.getTargets().length, 2);
+});
+
+test('assignUnassignedTargets asigna los registros antiguos a un número', async () => {
+  await fs.rm(configFile, { force: true });
+  await config.initConfig();
+  await config.createTarget({
+    accountId: 'acc-1',
+    targetUser: '584111111111',
+    keywords: ['uno'],
+    response: 'ok',
+  });
+
+  // Simula un registro del formato antiguo "cualquier cuenta" en el archivo.
+  const raw = JSON.parse(await fs.readFile(configFile, 'utf8'));
+  raw.targets.push({
+    id: 'legacy-1',
+    accountId: '',
+    targetUser: '584222222222',
+    keywords: ['dos'],
+    response: 'ok',
+  });
+  await fs.writeFile(configFile, JSON.stringify(raw));
+
+  await config.initConfig();
+  const assigned = await config.assignUnassignedTargets('acc-1');
+  assert.equal(assigned, 1);
+  assert.equal(config.getTargets().find((target) => target.id === 'legacy-1').accountId, 'acc-1');
+  assert.equal(await config.assignUnassignedTargets('acc-1'), 0);
 });
