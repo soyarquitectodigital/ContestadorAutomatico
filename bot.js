@@ -23,8 +23,6 @@ const BUSY_STATUSES = ['connecting', 'qr', 'connected', 'reconnecting'];
 
 // Una sesión por cuenta de WhatsApp.
 const sessions = new Map();
-// Evita que dos cuentas respondan el mismo mensaje cuando el registro es "cualquier cuenta".
-const repliedGlobally = new Map();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const randomBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -377,17 +375,7 @@ async function handleMessages(accountId, { messages, type }) {
     const { target } = result;
     const who = target.label ? `${target.label} (${author})` : author;
 
-    // Registro "cualquier cuenta": evita que dos cuentas respondan el mismo mensaje.
-    if (!target.accountId) {
-      const globalKey = `${target.id}:${message.key.id}`;
-      if (repliedGlobally.has(globalKey)) {
-        addLog('warn', `[${account.label}] Otra cuenta ya respondió este mensaje (registro para ${who}). Se omite.`);
-        continue;
-      }
-      repliedGlobally.set(globalKey, Date.now());
-      if (repliedGlobally.size > 1000) repliedGlobally.clear();
-    }
-
+    // Registro compartido: responden todas las cuentas conectadas que reciban el mensaje.
     addLog('success', `[${account.label}] Mensaje detectado de ${who} con la palabra clave${result.keyword ? ` “${result.keyword}”` : ''}.`);
 
     // Anti-baneo: no solapar respuestas en el mismo chat.
