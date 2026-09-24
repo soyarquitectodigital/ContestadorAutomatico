@@ -43,7 +43,9 @@ import {
 } from './bot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = Number(process.env.PORT || 3000);
+const PORT = process.env.PORT !== undefined && process.env.PORT !== '' ? Number(process.env.PORT) : 3000;
+// En escritorio se usa 127.0.0.1 para que el panel no sea accesible desde la red.
+const HOST = process.env.HOST || '0.0.0.0';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'secreto-de-desarrollo-cambia-esto-en-el-env';
 
 const app = express();
@@ -396,6 +398,13 @@ addLog(
     : 'Panel iniciado. La contraseña maestra se crea en el primer acceso.',
 );
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Panel disponible en http://localhost:${PORT}`);
+// `serverReady` resuelve con el puerto real (PORT=0 pide uno libre, útil en escritorio).
+export const serverReady = new Promise((resolve, reject) => {
+  server.once('error', reject);
+  server.listen(PORT, HOST, () => {
+    const { port } = server.address();
+    console.log(`Panel disponible en http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${port}`);
+    resolve(port);
+  });
 });
+await serverReady;

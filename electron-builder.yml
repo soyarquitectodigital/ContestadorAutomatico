@@ -1,0 +1,46 @@
+appId: com.progoswa.contestadorautomatico
+productName: Contestador Automatico
+copyright: Copyright © 2026 Progoswa
+
+directories:
+  output: dist-desktop
+  buildResources: build
+
+asar: true
+npmRebuild: false
+
+files:
+  - "**/*"
+  - "!test/**"
+  - "!data/**"
+  - "!.env"
+  - "!.env.*"
+  - "!Dockerfile"
+  - "!docker-compose.yml"
+  - "!render.yaml"
+  - "!.dockerignore"
+  - "!dist-desktop/**"
+  - "!.git/**"
+  - "!node_modules/sharp/**"
+  - "!node_modules/@img/**"
+  - "!node_modules/jimp/**"
+  - "!node_modules/link-preview-js/**"
+  - "!node_modules/audio-decode/**"
+  - "!node_modules/.cache/**"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.png
+  artifactName: Contestador-Automatico-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Contestador Automatico
+  deleteAppDataOnUninstall: false

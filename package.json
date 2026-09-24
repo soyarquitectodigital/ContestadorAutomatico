@@ -1,13 +1,17 @@
 {
   "name": "contestador-automatico",
   "version": "1.0.0",
-  "description": "Panel de control web para un bot selectivo de WhatsApp con Baileys",
+  "description": "Panel de control web y app de escritorio para un bot selectivo de WhatsApp con Baileys",
+  "author": "Progoswa",
   "type": "module",
-  "main": "server.js",
+  "main": "desktop/main.mjs",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "desktop": "electron .",
+    "desktop:smoke": "electron . --smoke",
+    "desktop:build": "electron-builder --win"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -20,5 +24,9 @@
     "pino": "^9.5.0",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
   }
 }
