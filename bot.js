@@ -6,6 +6,8 @@ import pino from 'pino';
 import QRCode from 'qrcode';
 import { getSettings, getTargets } from './lib/config.js';
 import { accountAuthFolder, getAccount, getAccounts } from './lib/accounts.js';
+import { usingDb } from './lib/db.js';
+import { clearDbAuthState, useDbAuthState } from './lib/auth-state.js';
 import { addLog } from './lib/logger.js';
 import { containsAnyKeyword, matchesAnyKeyword, describeAuthor, evaluateMessage, extractText, matchesTargetUser, targetKeywords } from './lib/filters.js';
 import { createGroupMetadataCache } from './lib/group-cache.js';
@@ -97,6 +99,10 @@ function setStatus(account, status, detail = '') {
 }
 
 async function clearAuthFolder(accountId) {
+  if (usingDb()) {
+    await clearDbAuthState(accountId);
+    return;
+  }
   await rm(accountAuthFolder(accountId), { recursive: true, force: true });
 }
 
@@ -125,7 +131,10 @@ async function connect(account) {
   setStatus(account, 'connecting', 'Iniciando conexión con WhatsApp...');
   addLog('info', `[${account.label}] Iniciando conexión con WhatsApp...`);
 
-  const { state: authState, saveCreds } = await useMultiFileAuthState(accountAuthFolder(account.id));
+  // Sesión de WhatsApp: en la nube (Turso) si está configurada, o en disco.
+  const { state: authState, saveCreds } = usingDb()
+    ? await useDbAuthState(account.id)
+    : await useMultiFileAuthState(accountAuthFolder(account.id));
 
   const sock = makeWASocket({
     auth: authState,

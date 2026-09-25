@@ -1,8 +1,12 @@
 # Despliegue en Render (https://render.com)
 #
-# Importante: el disco persistente es obligatorio para no perder las sesiones
-# de WhatsApp (data/auth_info) ni la configuración en cada reinicio.
-# Los discos persistentes no están disponibles en el plan free.
+# Persistencia: hay dos opciones.
+#   A) Turso (recomendada, gratis): define TURSO_DATABASE_URL y TURSO_AUTH_TOKEN
+#      (abajo) y TODO se guarda en la nube: registros, cuentas, contraseña y la
+#      sesión de WhatsApp. Con Turso puedes quitar el disco y usar plan free.
+#   B) Disco persistente (de pago): el disco guarda las sesiones de WhatsApp
+#      (data/auth_info) y la configuración entre reinicios.
+#      Los discos persistentes no están disponibles en el plan free.
 #
 # Pasos:
 #   1. Sube el repositorio a GitHub/GitLab.
@@ -22,6 +26,12 @@ services:
         generateValue: true
       - key: DATA_DIR
         value: /var/data
+      # Opción A (recomendada): persistencia en la nube con Turso.
+      # Crea la base en https://app.turso.tech y descomenta:
+      # - key: TURSO_DATABASE_URL
+      #   value: libsql://tu-base-tu-org.turso.io
+      # - key: TURSO_AUTH_TOKEN
+      #   sync: false
       # Opcional: fija la contraseña maestra por entorno en lugar del primer acceso
       # - key: MASTER_KEY
       #   sync: false

@@ -30,6 +30,8 @@ import {
 } from './lib/accounts.js';
 import { addLog, getLogs, logEvents } from './lib/logger.js';
 import { startSelfPing } from './lib/self-ping.js';
+import { flushDbWrites, initDb, usingDb } from './lib/db.js';
+import { importAuthFilesToDb } from './lib/migrate-to-db.js';
 import { hasMasterPassword, setupMasterPassword, verifyMasterPassword, usingEnvKey } from './lib/auth.js';
 import {
   botEvents,
@@ -392,6 +394,8 @@ async function shutdown(signal) {
   addLog('info', `Cerrando (${signal}): guardando sesiones de WhatsApp...`);
   try {
     await stopAllAccounts();
+    // En modo nube: espera a que lleguen a Turso las escrituras en vuelo.
+    await flushDbWrites();
   } catch (error) {
     addLog('error', `No se pudieron detener las cuentas: ${error?.message ?? error}`);
   }
@@ -408,12 +412,23 @@ process.on('SIGINT', () => {
 });
 
 // ---- Arranque ----
-addLog('info', `Carpeta de datos: ${dataDir()}`);
+// Con TURSO_DATABASE_URL todo se guarda en la nube (Turso) y el disco deja de
+// ser necesario; sin ella se usan los archivos JSON de DATA_DIR como siempre.
+if (usingDb()) {
+  await initDb();
+  addLog('info', 'Persistencia en la nube activada (Turso). El disco local solo se usa como respaldo de migración.');
+} else {
+  addLog('info', `Carpeta de datos: ${dataDir()}`);
+}
 await initConfig();
 await initAccounts();
 const migrated = await migrateLegacySession();
 if (migrated) {
   addLog('info', `Sesión anterior detectada: se registró como “${migrated.label}”.`);
+}
+// En modo nube: sube a Turso las sesiones de WhatsApp que haya en disco.
+if (usingDb()) {
+  await importAuthFilesToDb();
 }
 // Registros del formato antiguo "cualquier cuenta": se asignan al primer número
 // registrado para que cada cuenta tenga su propia configuración independiente.

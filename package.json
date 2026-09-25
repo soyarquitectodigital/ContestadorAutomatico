@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@cacheable/node-cache": "^1.7.6",
+    "@libsql/client": "^0.18.0",
     "baileys": "7.0.0-rc14",
     "dotenv": "^17.0.0",
     "express": "^5.1.0",
