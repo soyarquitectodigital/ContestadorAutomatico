@@ -29,6 +29,7 @@ import {
   migrateLegacySession,
 } from './lib/accounts.js';
 import { addLog, getLogs, logEvents } from './lib/logger.js';
+import { startSelfPing } from './lib/self-ping.js';
 import { hasMasterPassword, setupMasterPassword, verifyMasterPassword, usingEnvKey } from './lib/auth.js';
 import {
   botEvents,
@@ -440,3 +441,7 @@ export const serverReady = new Promise((resolve, reject) => {
   });
 });
 await serverReady;
+
+// Auto-ping a la URL pública para que Render no suspenda el servicio
+// (sustituye al antiguo workflow de GitHub Actions). No hace nada en local.
+startSelfPing();
