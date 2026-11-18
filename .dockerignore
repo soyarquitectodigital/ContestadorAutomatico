@@ -1,7 +1,16 @@
 node_modules
 data
+sqlite
 .env
 .git
 .gitignore
 npm-debug.log*
 test
+dist-desktop
+build
+desktop
+env
+deploy
+docker-compose*.yml
+electron-builder.yml
+render.yaml

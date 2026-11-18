@@ -23,9 +23,17 @@ const TYPING_DELAY_MIN_MS = 2000; // duración mínima del estado "escribiendo..
 const TYPING_DELAY_MAX_MS = 5000; // duración máxima del estado "escribiendo..."
 const MIN_REPLY_INTERVAL_MS = 15000; // intervalo mínimo entre respuestas por registro
 const MAX_MESSAGE_AGE_MS = 120000; // ignora mensajes con más de 2 minutos de antigüedad
-const USER_DEVICES_TTL_SECONDS = 30 * 60; // cache de dispositivos por cuenta (evita consultas USync)
+// Cache de dispositivos por cuenta (evita consultas USync en cada envío).
+// Baileys invalida la entrada cuando WhatsApp notifica cambios de dispositivos,
+// así que un TTL largo no deja la lista obsoleta.
+const USER_DEVICES_TTL_SECONDS = 12 * 60 * 60;
+// Refresco en segundo plano de los grupos con registros activos. Con los cachés
+// calientes es casi gratis (todo sale de memoria); si algo venció, se refresca
+// antes de que llegue una carga, no durante la carrera.
+const PREWARM_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 const RECONNECT_BASE_MS = 3000;
 const RECONNECT_MAX_MS = 30000;
+const ACK_LABELS = { 2: 'servidor', 3: 'entregado', 4: 'leído' };
 const BUSY_STATUSES = ['connecting', 'qr', 'connected', 'reconnecting'];
 
 // Una sesión por cuenta de WhatsApp.
@@ -49,6 +57,9 @@ function getSession(accountId) {
       groupMetadataCache: createGroupMetadataCache(),
       userDevicesCache: new NodeCache({ stdTTL: USER_DEVICES_TTL_SECONDS, useClones: false }),
       lastReplyByTarget: new Map(),
+      prewarming: false,
+      prewarmTimer: null,
+      sentMessages: new Map(),
     });
   }
   return sessions.get(accountId);
@@ -126,6 +137,24 @@ export async function startAccount(id) {
   return publicState(getAccount(id) ?? account);
 }
 
+// Metadatos de grupo con recuperación automática: si el caché no tiene el
+// grupo (o venció), se consulta una vez a WhatsApp y se guarda. Antes Baileys
+// consultaba por su cuenta en cada envío y el resultado se perdía, así que
+// después del TTL todas las respuestas pagaban la consulta otra vez.
+async function loadGroupMetadata(session, jid) {
+  if (typeof jid !== 'string' || !jid.endsWith('@g.us')) return undefined;
+
+  const sock = session.sock;
+  if (!sock || typeof sock.groupMetadata !== 'function') return undefined;
+
+  try {
+    return await session.groupMetadataCache.getOrFetch(jid, () => sock.groupMetadata(jid));
+  } catch (error) {
+    addLog('warn', `No se pudieron obtener los metadatos de ${jid}: ${error?.message ?? error}`);
+    return undefined;
+  }
+}
+
 async function connect(account) {
   const session = getSession(account.id);
   setStatus(account, 'connecting', 'Iniciando conexión con WhatsApp...');
@@ -145,9 +174,9 @@ async function connect(account) {
     markOnlineOnConnect: false,
     syncFullHistory: false,
     generateHighQualityLinkPreview: false,
-    // Metadatos de grupo desde memoria: evita la consulta de red antes de cada envío.
-    cachedGroupMetadata: async (jid) => session.groupMetadataCache.get(jid),
-    // Lista de dispositivos de participantes con TTL de 30 min (menos consultas USync).
+    // Metadatos de grupo desde memoria y, si faltan, se recuperan y se guardan.
+    cachedGroupMetadata: async (jid) => loadGroupMetadata(session, jid),
+    // Lista de dispositivos de participantes con TTL de 12 h (menos consultas USync).
     userDevicesCache: session.userDevicesCache,
   });
   session.sock = sock;
@@ -162,6 +191,27 @@ async function connect(account) {
     handleMessages(account.id, event).catch((error) => {
       addLog('error', `[${account.label}] Error procesando mensajes: ${error?.message ?? error}`);
     });
+  });
+  // Confirmaciones reales de WhatsApp: permite separar "el bot envió" de
+  // "WhatsApp entregó". Antes sendMessage resolvía al escribir el socket y no
+  // había forma de saber cuánto tardó realmente en llegar al grupo.
+  sock.ev.on('messages.update', (updates = []) => {
+    for (const { key, update } of updates) {
+      if (!key?.id || !update || typeof update.status !== 'number') continue;
+      const sent = session.sentMessages.get(key.id);
+      if (!sent) continue;
+
+      if (update.status === 0) {
+        session.sentMessages.delete(key.id);
+        addLog('warn', `[${account.label}] WhatsApp rechazó la respuesta (${Date.now() - sent.at} ms).`);
+        continue;
+      }
+
+      const label = ACK_LABELS[update.status];
+      if (!label) continue;
+      session.sentMessages.delete(key.id);
+      addLog('info', `[${account.label}] ACK ${label} en ${Date.now() - sent.at} ms.`);
+    }
   });
   // Mantiene fresco el cache de metadatos de grupo sin consultarlo en cada envío.
   sock.ev.on('groups.upsert', (metadatas = []) => {
@@ -202,10 +252,15 @@ async function handleConnectionUpdate(accountId, update) {
     });
     // Precalienta dispositivos y sesiones de los grupos con registros para que
     // la primera respuesta no pague el USync ni el intercambio de prekeys.
-    void prewarmAccount(account, session);
+    void prewarmAccount(account, session).catch((error) => {
+      addLog('warn', `[${account.label}] Precalentamiento inicial falló: ${error?.message ?? error}`);
+    });
+    // Y mantiene esos cachés calientes mientras la sesión siga conectada.
+    startPrewarmTimer(account, session);
   }
 
   if (connection === 'close') {
+    stopPrewarmTimer(session);
     const statusCode = lastDisconnect?.error?.output?.statusCode;
 
     if (statusCode === DisconnectReason.loggedOut) {
@@ -232,9 +287,7 @@ async function prewarmSingleGroup(account, session, jid) {
     return 0;
   }
 
-  const meta = session.groupMetadataCache.get(jid) ?? (await session.sock.groupMetadata(jid));
-  if (Array.isArray(meta?.participants)) session.groupMetadataCache.set(meta);
-
+  const meta = await loadGroupMetadata(session, jid);
   const participants = (meta?.participants ?? []).map((participant) => participant.id).filter(Boolean);
   if (participants.length === 0) return 0;
 
@@ -245,27 +298,62 @@ async function prewarmSingleGroup(account, session, jid) {
 }
 
 // Precalienta los grupos referenciados por los registros de la cuenta.
-async function prewarmAccount(account, session) {
+// `silent` evita llenar el panel con una entrada cada 30 minutos.
+async function prewarmAccount(account, session, { silent = false } = {}) {
+  if (session.prewarming) return;
+
   const groups = groupsToPrewarm(getTargets(), account.id, DEFAULT_MAX_PREWARM_GROUPS);
   if (groups.length === 0) return;
 
+  session.prewarming = true;
   const startedAt = Date.now();
   let devices = 0;
-  addLog('info', `[${account.label}] Precalentando ${groups.length} grupo(s) para responder más rápido...`);
-
-  for (const jid of groups) {
-    if (session.status !== 'connected' || !session.sock) break;
-    try {
-      devices += await prewarmSingleGroup(account, session, jid);
-    } catch (error) {
-      addLog('warn', `[${account.label}] No se pudo precalentar ${jid}: ${error?.message ?? error}`);
-    }
+  if (!silent) {
+    addLog('info', `[${account.label}] Precalentando ${groups.length} grupo(s) para responder más rápido...`);
   }
 
-  addLog('info', `[${account.label}] Precalentamiento completado en ${Date.now() - startedAt} ms (${devices} dispositivo(s)).`);
+  try {
+    for (const jid of groups) {
+      if (session.status !== 'connected' || !session.sock) break;
+      try {
+        devices += await prewarmSingleGroup(account, session, jid);
+      } catch (error) {
+        addLog('warn', `[${account.label}] No se pudo precalentar ${jid}: ${error?.message ?? error}`);
+      }
+    }
+  } finally {
+    session.prewarming = false;
+  }
+
+  if (!silent) {
+    addLog(
+      'info',
+      `[${account.label}] Precalentamiento completado en ${Date.now() - startedAt} ms (${devices} dispositivo(s)).`,
+    );
+  }
 }
 
-// Precalienta un grupo concreto al guardar un registro con grupo (best-effort).
+function stopPrewarmTimer(session) {
+  if (!session?.prewarmTimer) return;
+  clearInterval(session.prewarmTimer);
+  session.prewarmTimer = null;
+}
+
+// Mantiene calientes los grupos mientras la sesión está conectada. Si los cachés
+// están vigentes, leerlos no genera tráfico; solo se consulta a WhatsApp cuando
+// de verdad falta un dato o venció.
+function startPrewarmTimer(account, session) {
+  stopPrewarmTimer(session);
+  session.prewarmTimer = setInterval(() => {
+    if (session.status !== 'connected' || !session.sock || session.prewarming) return;
+    void prewarmAccount(account, session, { silent: true }).catch((error) => {
+      addLog('warn', `[${account.label}] Refresco de caché falló: ${error?.message ?? error}`);
+    });
+  }, PREWARM_REFRESH_INTERVAL_MS);
+  session.prewarmTimer.unref?.();
+}
+
+// Precalienta un grupo concreto al guardar o activar un registro con grupo.
 export async function prewarmGroup(accountId, groupJid) {
   const account = getAccount(accountId);
   const session = sessions.get(accountId);
@@ -308,6 +396,7 @@ export async function stopAccount(id) {
   const account = getAccount(id);
   const session = getSession(id);
   session.startedByUser = false;
+  stopPrewarmTimer(session);
 
   if (session.reconnectTimer) {
     clearTimeout(session.reconnectTimer);
@@ -334,6 +423,7 @@ export async function logoutAccount(id) {
   const account = getAccount(id);
   const session = getSession(id);
   session.startedByUser = false;
+  stopPrewarmTimer(session);
 
   if (session.reconnectTimer) {
     clearTimeout(session.reconnectTimer);
@@ -363,6 +453,7 @@ export async function logoutAccount(id) {
 export async function removeAccountSession(id) {
   const session = getSession(id);
   session.startedByUser = false;
+  stopPrewarmTimer(session);
   if (session.reconnectTimer) {
     clearTimeout(session.reconnectTimer);
     session.reconnectTimer = null;
@@ -500,12 +591,26 @@ async function processMessage(account, session, message, targets, humanize) {
       }
 
       session.lastReplyByTarget.set(target.id, Date.now());
-      await sendReply(session.sock, jid, target.response, message);
+      const sent = await sendReply(session.sock, jid, target.response, message);
+
+      // Guarda el id para medir el acuse real de WhatsApp (messages.update).
+      if (sent?.key?.id) {
+        session.sentMessages.set(sent.key.id, { at: Date.now() });
+        if (session.sentMessages.size > 1000) {
+          session.sentMessages.delete(session.sentMessages.keys().next().value);
+        }
+      }
 
       const elapsed = Date.now() - receivedAt;
-      const serverDelta = timestampMs ? Math.max(0, Date.now() - timestampMs) : null;
-      const delivery = serverDelta === null ? '' : ` · WhatsApp→bot ~${serverDelta} ms`;
-      addLog('success', `[${account.label}] Respuesta enviada a ${who} en ${elapsed} ms${delivery}${humanize ? ' · incluye modo humano' : ''}.`);
+      // La entrada se mide desde el timestamp del mensaje hasta que el bot lo
+      // recibió. Antes se calculaba después de enviar y se etiquetaba como
+      // "WhatsApp→bot", inflando el dato con el tiempo de envío.
+      const inboundDelta = timestampMs ? Math.max(0, receivedAt - timestampMs) : null;
+      const timing =
+        inboundDelta === null
+          ? ''
+          : ` · entrada ~${inboundDelta} ms · total ~${inboundDelta + elapsed} ms`;
+      addLog('success', `[${account.label}] Respuesta enviada a ${who} en ${elapsed} ms${timing}${humanize ? ' · incluye modo humano' : ''}.`);
     });
   } catch (error) {
     if (error instanceof QueueFullError) {
@@ -523,8 +628,7 @@ async function sendReply(sock, jid, responseText, quotedMessage) {
   const { humanize } = getSettings();
 
   if (!humanize) {
-    await sock.sendMessage(jid, { text: responseText }, { quoted: quotedMessage });
-    return;
+    return sock.sendMessage(jid, { text: responseText }, { quoted: quotedMessage });
   }
 
   // ==== Secuencia de humanización anti-baneo (orden obligatorio) ====
@@ -545,5 +649,5 @@ async function sendReply(sock, jid, responseText, quotedMessage) {
   await sock.sendPresenceUpdate('paused', jid);
 
   // 5) Enviar la respuesta citando el mensaje original (quoted obligatorio).
-  await sock.sendMessage(jid, { text: responseText }, { quoted: quotedMessage });
+  return sock.sendMessage(jid, { text: responseText }, { quoted: quotedMessage });
 }

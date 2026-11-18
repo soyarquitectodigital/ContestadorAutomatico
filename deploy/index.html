@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contestador automático</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 2rem;
+      font-family: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: radial-gradient(1200px 600px at 50% -10%, #1e293b, #0f172a 60%);
+      color: #e2e8f0;
+    }
+    main { width: min(720px, 100%); }
+    h1 { margin: 0 0 .4rem; font-size: clamp(1.6rem, 4vw, 2.2rem); }
+    p { margin: 0 0 1.8rem; color: #94a3b8; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .8rem; }
+    a {
+      display: block;
+      padding: 1.1rem 1.2rem;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      background: rgba(30, 41, 59, .7);
+      color: #e2e8f0;
+      text-decoration: none;
+      font-weight: 700;
+      transition: border-color .15s, transform .15s, background .15s;
+    }
+    a:hover { border-color: #10b981; background: rgba(16, 185, 129, .12); transform: translateY(-2px); }
+    a span { display: block; margin-top: .25rem; font-size: .78rem; font-weight: 500; color: #94a3b8; }
+    a .ref { color: #34d399; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Contestador automático</h1>
+    <p>Selecciona una instancia para abrir su panel.</p>
+    <div class="grid">
+      <a href="/cuenta-1/">Hernán 1<span class="ref">elenaleon***@icloud.com</span><span>/cuenta-1</span></a>
+      <a href="/cuenta-2/">Elías 1<span class="ref">eliasibolvera***@gmail.com</span><span>/cuenta-2</span></a>
+      <a href="/cuenta-3/">Elías 2<span class="ref">ilevazquezj***@gmail.com</span><span>/cuenta-3</span></a>
+      <a href="/cuenta-4/">Ile 1<span class="ref">iv2253***@gmail.com</span><span>/cuenta-4</span></a>
+      <a href="/cuenta-5/">Ile 2<span class="ref">transportesmg***@gmail.com</span><span>/cuenta-5</span></a>
+      <a href="/cuenta-6/">Hernán 2<span class="ref">transportesvazquez***@gmail.com</span><span>/cuenta-6</span></a>
+    </div>
+  </main>
+</body>
+</html>

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="{{BASE_PATH}}/css/styles.css">
 </head>
 <body class="centered">
   <main class="login-card">
@@ -55,6 +55,7 @@
     <p id="message" class="message" role="alert"></p>
     <p class="hint" id="hint"></p>
   </main>
-  <script src="/js/login.js"></script>
+  <script>window.__BASE_PATH__ = "{{BASE_PATH}}";</script>
+  <script src="{{BASE_PATH}}/js/login.js"></script>
 </body>
 </html>

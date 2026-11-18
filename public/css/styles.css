@@ -705,6 +705,19 @@ textarea.mono {
 
 .account-meta { margin: 3px 0 0; color: var(--muted); font-size: 0.82rem; }
 
+.account-reference { color: var(--blue); font-size: 0.78rem; font-weight: 700; }
+
+.standby-banner {
+  grid-column: 1 / -1;
+  padding: 11px 15px;
+  border: 1px solid #fcd34d;
+  border-radius: var(--radius-sm);
+  background: var(--warn-soft);
+  color: #92400e;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
 .account-actions { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
 
 .account-qr {

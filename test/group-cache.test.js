@@ -53,6 +53,64 @@ test('get descarta las entradas vencidas según el TTL', () => {
   assert.equal(cache.get('g@g.us'), undefined);
 });
 
-test('el TTL por defecto es de 15 minutos', () => {
-  assert.equal(DEFAULT_GROUP_METADATA_TTL_MS, 15 * 60 * 1000);
+test('el TTL por defecto es de 12 horas', () => {
+  assert.equal(DEFAULT_GROUP_METADATA_TTL_MS, 12 * 60 * 60 * 1000);
+});
+
+test('getOrFetch consulta una sola vez y guarda el resultado', async () => {
+  const cache = createGroupMetadataCache();
+  const meta = { id: 'g@g.us', participants: [{ id: 'a' }] };
+  let calls = 0;
+
+  const first = await cache.getOrFetch('g@g.us', async () => {
+    calls += 1;
+    return meta;
+  });
+  assert.deepEqual(first, meta);
+  assert.equal(calls, 1);
+  assert.deepEqual(cache.get('g@g.us'), meta);
+
+  const second = await cache.getOrFetch('g@g.us', async () => {
+    calls += 1;
+    return { ...meta, subject: 'otro' };
+  });
+  assert.deepEqual(second, meta);
+  assert.equal(calls, 1, 'la segunda vez debe salir del caché');
+});
+
+test('getOrFetch vuelve a consultar cuando el TTL venció', async () => {
+  let current = 0;
+  const cache = createGroupMetadataCache({ ttlMs: 1000, now: () => current });
+  const meta = { id: 'g@g.us', participants: [] };
+  let calls = 0;
+
+  await cache.getOrFetch('g@g.us', async () => {
+    calls += 1;
+    return meta;
+  });
+  assert.equal(calls, 1);
+
+  current = 1001;
+  const refreshed = await cache.getOrFetch('g@g.us', async () => {
+    calls += 1;
+    return { ...meta, subject: 'nuevo' };
+  });
+  assert.equal(calls, 2);
+  assert.equal(refreshed.subject, 'nuevo');
+  assert.equal(cache.get('g@g.us').subject, 'nuevo');
+});
+
+test('getOrFetch no guarda nada si el fetcher falla o devuelve vacío', async () => {
+  const cache = createGroupMetadataCache();
+
+  await assert.rejects(
+    cache.getOrFetch('g@g.us', async () => {
+      throw new Error('red');
+    }),
+    /red/,
+  );
+  assert.equal(cache.get('g@g.us'), undefined);
+
+  assert.equal(await cache.getOrFetch('g@g.us', async () => undefined), undefined);
+  assert.equal(cache.size(), 0);
 });

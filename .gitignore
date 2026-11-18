@@ -1,5 +1,8 @@
 node_modules/
 data/
+sqlite/
+deploy/acme/
 .env
 npm-debug.log*
 dist-desktop/
+env/

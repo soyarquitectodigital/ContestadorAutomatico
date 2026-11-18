@@ -1,0 +1,105 @@
+# Despliegue en el VPS: 6 instancias independientes + proxy Nginx por ruta.
+#
+# Uso (desde la raíz del proyecto):
+#   docker compose -f docker-compose.vps.yml up -d --build
+#
+# Cada instancia usa su propio env (env/cuenta-N.env) y sus propios datos
+# (data/cuenta-N). Nginx publica el puerto 80 y enruta /cuenta-N/ a cada una.
+name: contestador
+
+x-contestador: &contestador
+  build:
+    context: .
+  image: contestador-automatico:latest
+  restart: unless-stopped
+  environment:
+    - DATA_DIR=/app/data
+  expose:
+    - "3000"
+  healthcheck:
+    test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 30s
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  contestador-1:
+    <<: *contestador
+    container_name: contestador-1
+    env_file:
+      - ./env/cuenta-1.env
+    volumes:
+      - ./data/cuenta-1:/app/data
+      - ./sqlite/cuenta-1:/app/db
+
+  contestador-2:
+    <<: *contestador
+    container_name: contestador-2
+    env_file:
+      - ./env/cuenta-2.env
+    volumes:
+      - ./data/cuenta-2:/app/data
+      - ./sqlite/cuenta-2:/app/db
+
+  contestador-3:
+    <<: *contestador
+    container_name: contestador-3
+    env_file:
+      - ./env/cuenta-3.env
+    volumes:
+      - ./data/cuenta-3:/app/data
+      - ./sqlite/cuenta-3:/app/db
+
+  contestador-4:
+    <<: *contestador
+    container_name: contestador-4
+    env_file:
+      - ./env/cuenta-4.env
+    volumes:
+      - ./data/cuenta-4:/app/data
+      - ./sqlite/cuenta-4:/app/db
+
+  contestador-5:
+    <<: *contestador
+    container_name: contestador-5
+    env_file:
+      - ./env/cuenta-5.env
+    volumes:
+      - ./data/cuenta-5:/app/data
+      - ./sqlite/cuenta-5:/app/db
+
+  contestador-6:
+    <<: *contestador
+    container_name: contestador-6
+    env_file:
+      - ./env/cuenta-6.env
+    volumes:
+      - ./data/cuenta-6:/app/data
+      - ./sqlite/cuenta-6:/app/db
+
+  proxy:
+    image: nginx:alpine
+    container_name: contestador-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/proxy_headers.conf:/etc/nginx/proxy_headers.conf:ro
+      - ./deploy/index.html:/usr/share/nginx/html/index.html:ro
+      - ./deploy/acme:/var/www/certbot:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - contestador-1
+      - contestador-2
+      - contestador-3
+      - contestador-4
+      - contestador-5
+      - contestador-6

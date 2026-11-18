@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,12 +53,59 @@ const PORT = process.env.PORT !== undefined && process.env.PORT !== '' ? Number(
 // En escritorio se usa 127.0.0.1 para que el panel no sea accesible desde la red.
 const HOST = process.env.HOST || '0.0.0.0';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'secreto-de-desarrollo-cambia-esto-en-el-env';
+// Prefijo público del panel (por ejemplo /cuenta-1). Vacío = servido en la raíz.
+const BASE_PATH = normalizeBasePath(process.env.BASE_PATH);
+// Correo de referencia del cliente; se muestra enmascarado en las cards.
+const ACCOUNT_REFERENCE = maskEmail(process.env.ACCOUNT_REFERENCE);
+// Modo standby: solo lectura, sin conectar WhatsApp ni escribir en la base.
+const STANDBY = isEnabled(process.env.STANDBY);
+// Al arrancar, conectar automáticamente todas las cuentas de la instancia.
+const AUTO_START = isEnabled(process.env.AUTO_START);
+
+function normalizeBasePath(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw || raw === '/') return '';
+  return `/${raw.replace(/^\/+|\/+$/g, '')}`;
+}
+
+function isEnabled(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value ?? '').trim().toLowerCase());
+}
+
+function maskEmail(value) {
+  const email = String(value ?? '').trim();
+  const match = email.match(/^([^@\s]+)@([^@\s]+)$/);
+  if (!match) return '';
+  const local = match[1];
+  const domain = match[2].replace(/[^A-Za-z0-9.-]/g, '');
+  // Conserva la parte anterior a los números (mínimo 6) para que dos correos
+  // del mismo dominio se puedan distinguir: transportesmg*** vs transportesvazquez***.
+  const digitIndex = local.search(/\d/);
+  const keep = digitIndex > 0 ? Math.max(6, digitIndex) : Math.min(local.length, 8);
+  const visible = local.slice(0, keep).replace(/[^A-Za-z0-9._%+-]/g, '');
+  if (!visible || !domain) return '';
+  return `${visible}***@${domain}`;
+}
 
 const app = express();
 const server = http.createServer(app);
-const io = new SocketServer(server);
+const io = new SocketServer(server, BASE_PATH ? { path: `${BASE_PATH}/socket.io` } : {});
+const router = express.Router();
+
+// Las vistas llevan marcadores para el prefijo, la referencia y el standby.
+function renderView(name) {
+  return fs
+    .readFileSync(path.join(__dirname, 'views', name), 'utf8')
+    .replaceAll('{{BASE_PATH}}', BASE_PATH)
+    .replaceAll('{{ACCOUNT_REFERENCE}}', ACCOUNT_REFERENCE)
+    .replaceAll('{{STANDBY}}', STANDBY ? '1' : '');
+}
+const loginPage = renderView('login.html');
+const dashboardPage = renderView('dashboard.html');
 
 app.disable('x-powered-by');
+// Detrás de Nginx: usa X-Forwarded-Proto para cookies Secure y req.ip real.
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '200kb' }));
 
 // Health check público (Render, Docker, monitoreo).
@@ -71,7 +119,13 @@ app.use(
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { httpOnly: true, sameSite: 'lax', maxAge: 12 * 60 * 60 * 1000 },
+    cookie: {
+      path: BASE_PATH || '/',
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: 'auto',
+      maxAge: 12 * 60 * 60 * 1000,
+    },
   }),
 );
 
@@ -82,30 +136,30 @@ function requireAuth(req, res, next) {
 
 function requireAuthPage(req, res, next) {
   if (req.session?.authenticated) return next();
-  return res.redirect('/login');
+  return res.redirect(`${BASE_PATH}/login`);
 }
 
 // ---- Páginas ----
-app.get('/', (req, res) => {
-  res.redirect(req.session?.authenticated ? '/dashboard' : '/login');
+router.get('/', (req, res) => {
+  res.redirect(`${BASE_PATH}${req.session?.authenticated ? '/dashboard' : '/login'}`);
 });
 
-app.get('/login', (req, res) => {
-  if (req.session?.authenticated) return res.redirect('/dashboard');
-  res.sendFile(path.join(__dirname, 'views', 'login.html'));
+router.get('/login', (req, res) => {
+  if (req.session?.authenticated) return res.redirect(`${BASE_PATH}/dashboard`);
+  res.type('html').send(loginPage);
 });
 
-app.get('/dashboard', requireAuthPage, (req, res) => {
-  res.sendFile(path.join(__dirname, 'views', 'dashboard.html'));
+router.get('/dashboard', requireAuthPage, (req, res) => {
+  res.type('html').send(dashboardPage);
 });
 
 // ---- Recursos estáticos (CSS y JS públicos) ----
-app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+router.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 // ---- Sesión y contraseña maestra ----
 const loginAttempts = new Map();
 
-app.get('/api/session', async (req, res) => {
+router.get('/api/session', async (req, res) => {
   res.json({
     authenticated: Boolean(req.session?.authenticated),
     needsSetup: !(await hasMasterPassword()),
@@ -113,7 +167,7 @@ app.get('/api/session', async (req, res) => {
 });
 
 // Primer inicio: crear la contraseña maestra.
-app.post('/api/setup', async (req, res) => {
+router.post('/api/setup', async (req, res) => {
   try {
     if (await hasMasterPassword()) {
       return res.status(409).json({ error: 'La contraseña maestra ya está configurada.' });
@@ -130,7 +184,7 @@ app.post('/api/setup', async (req, res) => {
   }
 });
 
-app.post('/api/login', async (req, res) => {
+router.post('/api/login', async (req, res) => {
   const ip = req.ip || 'local';
   const attempt = loginAttempts.get(ip);
   if (attempt?.blockedUntil > Date.now()) {
@@ -154,30 +208,43 @@ app.post('/api/login', async (req, res) => {
   });
 });
 
-app.post('/api/logout', requireAuth, (req, res) => {
+router.post('/api/logout', requireAuth, (req, res) => {
   req.session.destroy(() => {
-    res.clearCookie('contestador.sid');
+    res.clearCookie('contestador.sid', { path: BASE_PATH || '/' });
     res.json({ ok: true });
   });
 });
 
 // ---- API protegida ----
-app.use('/api', requireAuth);
+router.use('/api', requireAuth);
+
+// Modo standby: permite consultar el panel pero bloquea cualquier escritura.
+// Así una instancia de respaldo no modifica Turso ni conecta la sesión de
+// WhatsApp que sigue usando el servicio principal.
+if (STANDBY) {
+  router.use(
+    ['/api/setup', '/api/accounts', '/api/bot', '/api/targets', '/api/settings'],
+    (req, res, next) => {
+      if (req.method === 'GET' || req.method === 'HEAD') return next();
+      return res.status(409).json({ error: 'Instancia en standby: los cambios están deshabilitados.' });
+    },
+  );
+}
 
 function sendError(res, error) {
   res.status(400).json({ error: error.message, errors: error.validation ?? [] });
 }
 
-app.get('/api/status', (req, res) => {
+router.get('/api/status', (req, res) => {
   res.json(getAggregateState());
 });
 
 // ---- Ajustes de respuesta ----
-app.get('/api/settings', (req, res) => {
+router.get('/api/settings', (req, res) => {
   res.json(getSettings());
 });
 
-app.put('/api/settings', async (req, res) => {
+router.put('/api/settings', async (req, res) => {
   try {
     const settings = await updateSettings(req.body ?? {});
     addLog(
@@ -193,11 +260,11 @@ app.put('/api/settings', async (req, res) => {
 });
 
 // ---- Cuentas de WhatsApp (varias sesiones con QR propio) ----
-app.get('/api/accounts', (req, res) => {
+router.get('/api/accounts', (req, res) => {
   res.json(getAccountStates());
 });
 
-app.post('/api/accounts', async (req, res) => {
+router.post('/api/accounts', async (req, res) => {
   try {
     const account = await createAccount({ label: req.body?.label });
     addLog('info', `Número de WhatsApp agregado: ${account.label}.`);
@@ -211,7 +278,7 @@ app.post('/api/accounts', async (req, res) => {
   }
 });
 
-app.put('/api/accounts/:id', async (req, res) => {
+router.put('/api/accounts/:id', async (req, res) => {
   try {
     await updateAccount(req.params.id, { label: req.body?.label });
     res.json(getAccountStates());
@@ -220,7 +287,7 @@ app.put('/api/accounts/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/accounts/:id', async (req, res) => {
+router.delete('/api/accounts/:id', async (req, res) => {
   try {
     const account = getAccount(req.params.id);
     if (!account) throw new Error('Número de WhatsApp no encontrado.');
@@ -237,7 +304,7 @@ app.delete('/api/accounts/:id', async (req, res) => {
   }
 });
 
-app.post('/api/accounts/:id/start', async (req, res) => {
+router.post('/api/accounts/:id/start', async (req, res) => {
   try {
     res.json(await startAccount(req.params.id));
   } catch (error) {
@@ -245,7 +312,7 @@ app.post('/api/accounts/:id/start', async (req, res) => {
   }
 });
 
-app.post('/api/accounts/:id/stop', async (req, res) => {
+router.post('/api/accounts/:id/stop', async (req, res) => {
   try {
     await stopAccount(req.params.id);
     res.json(getAccountStates());
@@ -254,7 +321,7 @@ app.post('/api/accounts/:id/stop', async (req, res) => {
   }
 });
 
-app.post('/api/accounts/:id/logout', async (req, res) => {
+router.post('/api/accounts/:id/logout', async (req, res) => {
   try {
     await logoutAccount(req.params.id);
     res.json(getAccountStates());
@@ -264,11 +331,11 @@ app.post('/api/accounts/:id/logout', async (req, res) => {
 });
 
 // Acciones globales: conectar/detener todas las cuentas.
-app.post('/api/bot/start', async (req, res) => {
+router.post('/api/bot/start', async (req, res) => {
   res.json(await startAllAccounts());
 });
 
-app.post('/api/bot/stop', async (req, res) => {
+router.post('/api/bot/stop', async (req, res) => {
   res.json(await stopAllAccounts());
 });
 
@@ -280,16 +347,35 @@ function accountError(body) {
   return null;
 }
 
-app.get('/api/targets', (req, res) => {
+const BUSY_ACCOUNT_STATUSES = ['connecting', 'qr', 'connected', 'reconnecting'];
+
+function accountHasEnabledTargets(accountId, targets = getTargets()) {
+  return targets.some((target) => target.accountId === accountId && target.enabled !== false);
+}
+
+// Conecta la cuenta solo cuando de verdad tiene registros activos. Así las
+// cuentas sin trabajo no consumen CPU, no duplican sesiones y no entran en el
+// bucle de QR de una cuenta que nunca se terminó de vincular.
+function ensureAccountStarted(accountId) {
+  const state = getAccountStates().find((item) => item.id === accountId);
+  if (!state || BUSY_ACCOUNT_STATUSES.includes(state.status)) return;
+  addLog('info', `Conectando “${state.label}” porque tiene registros activos...`);
+  startAccount(accountId).catch((error) => {
+    addLog('error', `No se pudo conectar “${state.label}”: ${error?.message ?? error}`);
+  });
+}
+
+router.get('/api/targets', (req, res) => {
   res.json(getTargets());
 });
 
-app.post('/api/targets', async (req, res) => {
+router.post('/api/targets', async (req, res) => {
   try {
     const problem = accountError(req.body);
     if (problem) return res.status(400).json({ error: problem, errors: [problem] });
     const target = await createTarget(req.body ?? {});
     addLog('success', `Registro agregado: ${target.label || `+${target.targetUser}`} (palabras clave: ${target.keywords.map((k) => `“${k}”`).join(', ')}).`);
+    if (target.enabled) ensureAccountStarted(target.accountId);
     if (target.groupJid) void prewarmGroup(target.accountId, target.groupJid);
     res.status(201).json(target);
   } catch (error) {
@@ -297,7 +383,7 @@ app.post('/api/targets', async (req, res) => {
   }
 });
 
-app.post('/api/targets/bulk', async (req, res) => {
+router.post('/api/targets/bulk', async (req, res) => {
   try {
     const problem = accountError(req.body);
     if (problem) return res.status(400).json({ error: problem, errors: [problem] });
@@ -306,6 +392,7 @@ app.post('/api/targets/bulk', async (req, res) => {
     if (result.created.length > 0) {
       const skippedText = result.skipped.length > 0 ? `, ${result.skipped.length} omitido(s)` : '';
       addLog('success', `Carga masiva: ${result.created.length} registro(s) agregado(s)${skippedText}.`);
+      if (result.created.some((item) => item.enabled)) ensureAccountStarted(accountId);
       if (groupJid) void prewarmGroup(accountId, groupJid);
     }
     res.status(201).json(result);
@@ -314,12 +401,13 @@ app.post('/api/targets/bulk', async (req, res) => {
   }
 });
 
-app.put('/api/targets/:id', async (req, res) => {
+router.put('/api/targets/:id', async (req, res) => {
   try {
     const problem = accountError(req.body);
     if (problem) return res.status(400).json({ error: problem, errors: [problem] });
     const target = await updateTarget(req.params.id, req.body ?? {});
     addLog('info', `Registro actualizado: ${target.label || `+${target.targetUser}`} (palabras clave: ${target.keywords.map((k) => `“${k}”`).join(', ')}).`);
+    if (target.enabled) ensureAccountStarted(target.accountId);
     if (target.groupJid) void prewarmGroup(target.accountId, target.groupJid);
     res.json(target);
   } catch (error) {
@@ -327,7 +415,7 @@ app.put('/api/targets/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/targets/:id', async (req, res) => {
+router.delete('/api/targets/:id', async (req, res) => {
   try {
     const target = getTargets().find((item) => item.id === req.params.id);
     await deleteTarget(req.params.id);
@@ -338,9 +426,12 @@ app.delete('/api/targets/:id', async (req, res) => {
   }
 });
 
-app.patch('/api/targets/:id/enabled', async (req, res) => {
+router.patch('/api/targets/:id/enabled', async (req, res) => {
   try {
     const target = await toggleTarget(req.params.id, req.body?.enabled);
+    // Al reactivar, conecta la cuenta si hace falta y deja el grupo caliente.
+    if (target.enabled) ensureAccountStarted(target.accountId);
+    if (target.enabled && target.groupJid) void prewarmGroup(target.accountId, target.groupJid);
     addLog('info', `Registro ${target.enabled ? 'activado' : 'desactivado'}: ${target.label || `+${target.targetUser}`}.`);
     res.json(target);
   } catch (error) {
@@ -348,11 +439,11 @@ app.patch('/api/targets/:id/enabled', async (req, res) => {
   }
 });
 
-app.get('/api/logs', (req, res) => {
+router.get('/api/logs', (req, res) => {
   res.json(getLogs());
 });
 
-app.get('/api/groups', async (req, res) => {
+router.get('/api/groups', async (req, res) => {
   try {
     res.json(await getGroups(req.query.accountId || null));
   } catch (error) {
@@ -368,6 +459,9 @@ io.on('connection', (socket) => {
 
 logEvents.on('log', (entry) => io.emit('log', entry));
 botEvents.on('accounts', (states) => io.emit('accounts', states));
+
+// ---- Montaje bajo el prefijo público ----
+app.use(BASE_PATH || '/', router);
 
 // ---- Manejo de errores ----
 app.use((req, res) => {
@@ -416,7 +510,12 @@ process.on('SIGINT', () => {
 // ser necesario; sin ella se usan los archivos JSON de DATA_DIR como siempre.
 if (usingDb()) {
   await initDb();
-  addLog('info', 'Persistencia en la nube activada (Turso). El disco local solo se usa como respaldo de migración.');
+  addLog(
+    'info',
+    process.env.SQLITE_PATH
+      ? `Persistencia local (SQLite): ${process.env.SQLITE_PATH}`
+      : 'Persistencia en la nube activada (Turso). El disco local solo se usa como respaldo de migración.',
+  );
 } else {
   addLog('info', `Carpeta de datos: ${dataDir()}`);
 }
@@ -456,6 +555,33 @@ export const serverReady = new Promise((resolve, reject) => {
   });
 });
 await serverReady;
+
+if (AUTO_START) {
+  const targets = getTargets();
+  const accounts = getAccounts();
+  const accountsWithTargets = accounts.filter((account) => accountHasEnabledTargets(account.id, targets));
+
+  if (accountsWithTargets.length === 0) {
+    addLog('info', 'Auto-start: no hay cuentas con registros activos; no se conecta ninguna.');
+  } else {
+    addLog(
+      'info',
+      `Auto-start activado: conectando ${accountsWithTargets.length} de ${accounts.length} cuenta(s) con registros activos...`,
+    );
+  }
+
+  for (const account of accounts) {
+    if (!accountsWithTargets.includes(account)) {
+      addLog('info', `Auto-start: “${account.label}” sin registros activos; se omite.`);
+    }
+  }
+
+  for (const account of accountsWithTargets) {
+    startAccount(account.id).catch((error) => {
+      addLog('error', `Auto-start de “${account.label}”: ${error?.message ?? error}`);
+    });
+  }
+}
 
 // Auto-ping a la URL pública para que Render no suspenda el servicio
 // (sustituye al antiguo workflow de GitHub Actions). No hace nada en local.

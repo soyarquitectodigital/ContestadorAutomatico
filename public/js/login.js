@@ -1,3 +1,5 @@
+const BASE = window.__BASE_PATH__ || '';
+
 const form = document.getElementById('authForm');
 const passwordInput = document.getElementById('password');
 const confirmInput = document.getElementById('confirm');
@@ -89,10 +91,10 @@ async function init() {
   if (expired) showMessage('Tu sesión expiró. Vuelve a introducir la contraseña.', 'info');
 
   try {
-    const response = await fetch('/api/session');
+    const response = await fetch(`${BASE}/api/session`);
     const data = await response.json();
     if (data.authenticated) {
-      window.location.href = '/dashboard';
+      window.location.href = `${BASE}/dashboard`;
       return;
     }
     needsSetup = Boolean(data.needsSetup);
@@ -127,7 +129,7 @@ form.addEventListener('submit', async (event) => {
   submitBtn.classList.add('loading');
   submitBtn.disabled = true;
   try {
-    const response = await fetch(needsSetup ? '/api/setup' : '/api/login', {
+    const response = await fetch(`${BASE}${needsSetup ? '/api/setup' : '/api/login'}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password }),
@@ -141,7 +143,7 @@ form.addEventListener('submit', async (event) => {
       }
       return;
     }
-    window.location.href = '/dashboard';
+    window.location.href = `${BASE}/dashboard`;
   } catch {
     showMessage('No se pudo contactar con el servidor.', 'error');
   } finally {

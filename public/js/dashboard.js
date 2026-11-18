@@ -1,5 +1,17 @@
-const socket = io();
+const BASE = window.__BASE_PATH__ || '';
+const ACCOUNT_REFERENCE = window.__ACCOUNT_REFERENCE__ || '';
+const STANDBY = window.__STANDBY__ === '1';
+const socket = io({ path: `${BASE}/socket.io` });
 const el = (id) => document.getElementById(id);
+
+if (STANDBY) {
+  const banner = el('standbyBanner');
+  if (banner) banner.classList.remove('hidden');
+  for (const id of ['startAllBtn', 'addAccountBtn', 'humanizeToggle']) {
+    const node = el(id);
+    if (node) node.disabled = true;
+  }
+}
 
 const STATUS_META = {
   disconnected: { label: 'Desconectado', className: 'badge-off' },
@@ -42,9 +54,9 @@ let autoScroll = true;
 let confirmResolver = null;
 
 async function api(url, options = {}) {
-  const response = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...options });
+  const response = await fetch(`${BASE}${url}`, { headers: { 'Content-Type': 'application/json' }, ...options });
   if (response.status === 401) {
-    window.location.href = '/login?expired=1';
+    window.location.href = `${BASE}/login?expired=1`;
     throw new Error('Sesión expirada.');
   }
   const data = await response.json().catch(() => null);
@@ -244,6 +256,12 @@ function accountRow(account) {
   detail.textContent = `${account.detail || 'Sin conectar'} · ${recordCount} registro(s)${disabledCount > 0 ? ` (${disabledCount} desactivado${disabledCount > 1 ? 's' : ''})` : ''}`;
 
   main.append(title, detail);
+  if (ACCOUNT_REFERENCE) {
+    const reference = document.createElement('span');
+    reference.className = 'account-reference';
+    reference.textContent = `Cuenta: ${ACCOUNT_REFERENCE}`;
+    main.append(reference);
+  }
 
   const chevron = document.createElement('span');
   chevron.className = 'chevron';
@@ -314,6 +332,13 @@ function accountRow(account) {
     text.textContent = account.detail || 'Conectando con WhatsApp…';
     loading.append(spinner, text);
     body.appendChild(loading);
+  }
+
+  if (STANDBY) {
+    actions.querySelectorAll('button').forEach((button) => {
+      button.disabled = true;
+      button.title = 'Instancia en standby: solo lectura';
+    });
   }
 
   body.appendChild(actions);
@@ -1105,7 +1130,7 @@ el('logoutPanelBtn').addEventListener('click', async () => {
   try {
     await api('/api/logout', { method: 'POST' });
   } finally {
-    window.location.href = '/login';
+    window.location.href = `${BASE}/login`;
   }
 });
 
@@ -1139,7 +1164,7 @@ async function init() {
   try {
     const session = await api('/api/session');
     if (!session.authenticated) {
-      window.location.href = '/login';
+      window.location.href = `${BASE}/login`;
       return;
     }
     const [accountList, targetList, settings] = await Promise.all([

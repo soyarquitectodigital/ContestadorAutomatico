@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="{{BASE_PATH}}/css/styles.css">
 </head>
 <body>
   <header class="topbar">
@@ -27,6 +27,9 @@
   </header>
 
   <main class="layout">
+    <div id="standbyBanner" class="standby-banner hidden" role="status">
+      Modo standby: panel de solo lectura. WhatsApp no está conectado en esta instancia.
+    </div>
     <section class="steps">
       <!-- Paso 1: cuentas de WhatsApp -->
       <article class="card accounts-card">
@@ -206,7 +209,12 @@
   <!-- Notificaciones -->
   <div id="toasts" class="toasts" aria-live="polite"></div>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/js/dashboard.js"></script>
+  <script>
+    window.__BASE_PATH__ = "{{BASE_PATH}}";
+    window.__ACCOUNT_REFERENCE__ = "{{ACCOUNT_REFERENCE}}";
+    window.__STANDBY__ = "{{STANDBY}}";
+  </script>
+  <script src="{{BASE_PATH}}/socket.io/socket.io.js"></script>
+  <script src="{{BASE_PATH}}/js/dashboard.js"></script>
 </body>
 </html>
