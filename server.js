@@ -30,6 +30,13 @@ import {
   migrateLegacySession,
 } from './lib/accounts.js';
 import { addLog, getLogs, logEvents } from './lib/logger.js';
+import {
+  flushMetrics,
+  getMetricsEvents,
+  getMetricsSummary,
+  getSystemEvents,
+  initMetrics,
+} from './lib/metrics.js';
 import { startSelfPing } from './lib/self-ping.js';
 import { flushDbWrites, initDb, usingDb } from './lib/db.js';
 import { importAuthFilesToDb } from './lib/migrate-to-db.js';
@@ -102,6 +109,7 @@ function renderView(name) {
 }
 const loginPage = renderView('login.html');
 const dashboardPage = renderView('dashboard.html');
+const metricsPage = renderView('metrics.html');
 
 app.disable('x-powered-by');
 // Detrás de Nginx: usa X-Forwarded-Proto para cookies Secure y req.ip real.
@@ -151,6 +159,10 @@ router.get('/login', (req, res) => {
 
 router.get('/dashboard', requireAuthPage, (req, res) => {
   res.type('html').send(dashboardPage);
+});
+
+router.get('/metrics', requireAuthPage, (req, res) => {
+  res.type('html').send(metricsPage);
 });
 
 // ---- Recursos estáticos (CSS y JS públicos) ----
@@ -443,6 +455,58 @@ router.get('/api/logs', (req, res) => {
   res.json(getLogs());
 });
 
+// ---- Métricas de latencia ----
+function metricHours(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return 24;
+  return Math.min(168, Math.max(1, number));
+}
+
+function metricLimit(value, fallback = 100) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return fallback;
+  return Math.min(500, Math.max(1, Math.floor(number)));
+}
+
+router.get('/api/metrics/summary', async (req, res) => {
+  try {
+    const summary = await getMetricsSummary({
+      hours: metricHours(req.query.hours),
+      accountId: typeof req.query.accountId === 'string' ? req.query.accountId : null,
+    });
+    res.json(summary);
+  } catch (error) {
+    res.status(500).json({ error: `No se pudieron leer las métricas: ${error?.message ?? error}` });
+  }
+});
+
+router.get('/api/metrics/events', async (req, res) => {
+  try {
+    const events = await getMetricsEvents({
+      hours: metricHours(req.query.hours),
+      accountId: typeof req.query.accountId === 'string' ? req.query.accountId : null,
+      outcome: typeof req.query.outcome === 'string' ? req.query.outcome : null,
+      limit: metricLimit(req.query.limit, 100),
+    });
+    res.json(events);
+  } catch (error) {
+    res.status(500).json({ error: `No se pudieron leer las métricas: ${error?.message ?? error}` });
+  }
+});
+
+router.get('/api/metrics/system', async (req, res) => {
+  try {
+    const events = await getSystemEvents({
+      hours: metricHours(req.query.hours),
+      accountId: typeof req.query.accountId === 'string' ? req.query.accountId : null,
+      limit: metricLimit(req.query.limit, 100),
+    });
+    res.json(events);
+  } catch (error) {
+    res.status(500).json({ error: `No se pudieron leer las métricas: ${error?.message ?? error}` });
+  }
+});
+
 router.get('/api/groups', async (req, res) => {
   try {
     res.json(await getGroups(req.query.accountId || null));
@@ -490,6 +554,7 @@ async function shutdown(signal) {
     await stopAllAccounts();
     // En modo nube: espera a que lleguen a Turso las escrituras en vuelo.
     await flushDbWrites();
+    await flushMetrics();
   } catch (error) {
     addLog('error', `No se pudieron detener las cuentas: ${error?.message ?? error}`);
   }
@@ -521,6 +586,7 @@ if (usingDb()) {
 }
 await initConfig();
 await initAccounts();
+await initMetrics();
 const migrated = await migrateLegacySession();
 if (migrated) {
   addLog('info', `Sesión anterior detectada: se registró como “${migrated.label}”.`);

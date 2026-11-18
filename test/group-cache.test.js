@@ -57,6 +57,20 @@ test('el TTL por defecto es de 12 horas', () => {
   assert.equal(DEFAULT_GROUP_METADATA_TTL_MS, 12 * 60 * 60 * 1000);
 });
 
+test('peek consulta sin borrar ni alterar y respeta el TTL', () => {
+  let current = 0;
+  const cache = createGroupMetadataCache({ ttlMs: 1000, now: () => current });
+  assert.equal(cache.peek('g@g.us'), false);
+
+  cache.set({ id: 'g@g.us', participants: [{ id: 'a' }] });
+  assert.equal(cache.peek('g@g.us'), true);
+  assert.equal(cache.size(), 1);
+
+  current = 1001;
+  assert.equal(cache.peek('g@g.us'), false);
+  assert.equal(cache.size(), 1, 'peek no debe borrar la entrada vencida');
+});
+
 test('getOrFetch consulta una sola vez y guarda el resultado', async () => {
   const cache = createGroupMetadataCache();
   const meta = { id: 'g@g.us', participants: [{ id: 'a' }] };

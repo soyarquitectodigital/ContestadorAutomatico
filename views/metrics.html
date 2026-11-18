@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rendimiento · Contestador Automático</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1220;
+      --panel: #111c2e;
+      --panel-2: #16243a;
+      --line: #26364f;
+      --text: #e5edf8;
+      --muted: #94a3b8;
+      --green: #34d399;
+      --blue: #60a5fa;
+      --amber: #fbbf24;
+      --red: #f87171;
+      --violet: #c4b5fd;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: radial-gradient(1200px 600px at 50% -10%, #17263d, var(--bg) 60%);
+      color: var(--text);
+    }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { max-width: 1440px; margin: 0 auto; padding: 24px; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px; flex-wrap: wrap; margin-bottom: 22px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark {
+      width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+      background: linear-gradient(135deg, #0ea5e9, #10b981); color: #04111f;
+    }
+    .brand-mark svg { width: 22px; height: 22px; fill: currentColor; }
+    h1 { margin: 0; font-size: 1.35rem; letter-spacing: -.02em; }
+    .subtitle { margin: 2px 0 0; color: var(--muted); font-size: .82rem; }
+    .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .btn {
+      appearance: none; border: 1px solid var(--line); background: var(--panel-2);
+      color: var(--text); border-radius: 10px; padding: 8px 12px; font: inherit;
+      font-size: .82rem; font-weight: 700; cursor: pointer;
+    }
+    .btn:hover { border-color: #3b82f6; }
+    .btn.active { background: #0f3b66; border-color: #3b82f6; color: #dbeafe; }
+    .muted { color: var(--muted); }
+    .small { font-size: .78rem; }
+    .cards {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px; margin-bottom: 18px;
+    }
+    .card {
+      border: 1px solid var(--line); background: linear-gradient(180deg, rgba(22,36,58,.92), rgba(17,28,46,.92));
+      border-radius: 14px; padding: 14px 16px; min-height: 108px;
+    }
+    .card .label { color: var(--muted); font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+    .card .value { margin-top: 10px; font-size: 1.55rem; font-weight: 800; letter-spacing: -.03em; }
+    .card .hint { margin-top: 6px; font-size: .76rem; color: var(--muted); }
+    .value.green { color: var(--green); }
+    .value.blue { color: var(--blue); }
+    .value.amber { color: var(--amber); }
+    .value.red { color: var(--red); }
+    .value.violet { color: var(--violet); }
+    .panel {
+      border: 1px solid var(--line); background: rgba(17,28,46,.92);
+      border-radius: 14px; padding: 16px; margin-bottom: 18px;
+    }
+    .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+    h2 { margin: 0; font-size: 1rem; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .82rem; min-width: 760px; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid rgba(38,54,79,.7); white-space: nowrap; }
+    th { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+    tr:last-child td { border-bottom: 0; }
+    td.num, th.num { text-align: right; }
+    .pill {
+      display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: .72rem; font-weight: 700;
+      border: 1px solid transparent;
+    }
+    .pill.green { color: #bbf7d0; background: rgba(16,185,129,.14); border-color: rgba(16,185,129,.35); }
+    .pill.blue { color: #bfdbfe; background: rgba(59,130,246,.14); border-color: rgba(59,130,246,.35); }
+    .pill.amber { color: #fde68a; background: rgba(245,158,11,.14); border-color: rgba(245,158,11,.35); }
+    .pill.red { color: #fecaca; background: rgba(239,68,68,.14); border-color: rgba(239,68,68,.35); }
+    .pill.gray { color: #cbd5e1; background: rgba(148,163,184,.12); border-color: rgba(148,163,184,.3); }
+    .banner {
+      border: 1px solid rgba(245,158,11,.45); background: rgba(245,158,11,.12);
+      color: #fde68a; padding: 10px 12px; border-radius: 10px; margin-bottom: 14px; font-size: .84rem;
+    }
+    .hidden { display: none !important; }
+    .empty { color: var(--muted); font-size: .84rem; padding: 18px 4px; }
+    @media (max-width: 640px) {
+      .wrap { padding: 16px; }
+      .card .value { font-size: 1.3rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M3 13h4l2 5 4-12 2 5h6v2h-7l-1-3-4 11-3-8H3z"/></svg>
+        </span>
+        <div>
+          <h1>Rendimiento del bot</h1>
+          <p class="subtitle">Entrada, cola, envío, ACK, caché y reconexiones · solo mensajes relevantes</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" data-hours="1" type="button">1 h</button>
+        <button class="btn" data-hours="6" type="button">6 h</button>
+        <button class="btn active" data-hours="24" type="button">24 h</button>
+        <button class="btn" data-hours="168" type="button">7 días</button>
+        <button class="btn" id="exportBtn" type="button">Exportar CSV</button>
+        <a class="btn" href="{{BASE_PATH}}/dashboard">Volver al panel</a>
+      </div>
+    </header>
+
+    <div id="errorBanner" class="banner hidden" role="alert"></div>
+
+    <section class="cards" id="cards" aria-live="polite"></section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Por cuenta</h2>
+        <span class="muted small">p50 / p95 de las respuestas enviadas</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Cuenta</th>
+              <th class="num">Respondidos</th>
+              <th class="num">Entrada p50</th>
+              <th class="num">Envío p50 / p95</th>
+              <th class="num">Total p50 / p95</th>
+              <th class="num">ACK p95</th>
+              <th class="num">Descartes</th>
+            </tr>
+          </thead>
+          <tbody id="accountsBody"></tbody>
+        </table>
+      </div>
+      <p id="accountsEmpty" class="empty hidden">Sin respuestas en este periodo.</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Últimos eventos de mensajes</h2>
+        <span class="muted small" id="updatedAt">—</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Hora</th>
+              <th>Cuenta</th>
+              <th>Objetivo</th>
+              <th>Palabra</th>
+              <th class="num">Entrada</th>
+              <th class="num">Cola</th>
+              <th class="num">Envío</th>
+              <th class="num">Total</th>
+              <th class="num">ACK</th>
+              <th>Caché</th>
+              <th>Resultado</th>
+            </tr>
+          </thead>
+          <tbody id="eventsBody"></tbody>
+        </table>
+      </div>
+      <p id="eventsEmpty" class="empty hidden">Sin eventos en este periodo.</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Conexión y precalentamiento</h2>
+        <span class="muted small">Los cortes de 4-7 s hacen perder cargas</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Hora</th>
+              <th>Cuenta</th>
+              <th>Evento</th>
+              <th>Detalle</th>
+              <th class="num">Duración</th>
+            </tr>
+          </thead>
+          <tbody id="systemBody"></tbody>
+        </table>
+      </div>
+      <p id="systemEmpty" class="empty hidden">Sin eventos de conexión en este periodo.</p>
+    </section>
+
+    <p class="muted small">
+      Se guardan hasta 14 días de eventos en la base local de esta instancia. Los mensajes del grupo sin
+      relación con un registro no se almacenan.
+    </p>
+  </div>
+
+  <script>
+    const BASE = "{{BASE_PATH}}";
+    const state = { hours: 24, loading: false, timer: null };
+    const OUTCOME_LABELS = {
+      replied: 'Respondido',
+      dropped_age: 'Descartado por viejo',
+      queue_full: 'Cola llena',
+      disabled: 'Registro desactivado',
+      other_group: 'Otro grupo',
+      no_keyword: 'Sin palabra clave',
+      keyword_unregistered: 'Número no registrado',
+      not_target: 'Autor no registrado',
+      other_account: 'Otra cuenta',
+      humanize_skip: 'Límite modo humano',
+      error: 'Error',
+    };
+    const OUTCOME_CLASS = {
+      replied: 'green',
+      dropped_age: 'red',
+      queue_full: 'red',
+      disabled: 'amber',
+      other_group: 'amber',
+      no_keyword: 'gray',
+      keyword_unregistered: 'blue',
+      not_target: 'gray',
+      other_account: 'blue',
+      humanize_skip: 'amber',
+      error: 'red',
+    };
+    const SYSTEM_LABELS = {
+      connected: 'Conectado',
+      closed: 'Conexión cerrada',
+      reconnecting: 'Reconectando',
+      qr: 'QR generado',
+      logged_out: 'Sesión cerrada',
+      prewarm: 'Precalentamiento',
+      prewarm_group: 'Prewarm de grupo',
+      stopped: 'Detenido',
+      removed: 'Eliminado',
+      error: 'Error',
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function ms(value) {
+      return value === null || value === undefined ? '—' : `${Math.round(value)} ms`;
+    }
+
+    function time(value) {
+      if (!value) return '—';
+      return new Date(value).toLocaleString('es-MX', { hour12: false });
+    }
+
+    function label(map, key) {
+      return map[key] || key || '—';
+    }
+
+    function pill(text, className) {
+      const node = document.createElement('span');
+      node.className = `pill ${className || 'gray'}`;
+      node.textContent = text;
+      return node;
+    }
+
+    function cell(text, className = '') {
+      const node = document.createElement('td');
+      if (className) node.className = className;
+      node.textContent = text;
+      return node;
+    }
+
+    function pillCell(text, className) {
+      const node = document.createElement('td');
+      node.appendChild(pill(text, className));
+      return node;
+    }
+
+    function addCard(labelText, valueText, hintText, color) {
+      const card = document.createElement('article');
+      card.className = 'card';
+      const label = document.createElement('div');
+      label.className = 'label';
+      label.textContent = labelText;
+      const value = document.createElement('div');
+      value.className = `value ${color || ''}`;
+      value.textContent = valueText;
+      const hint = document.createElement('div');
+      hint.className = 'hint';
+      hint.textContent = hintText;
+      card.append(label, value, hint);
+      $('cards').appendChild(card);
+    }
+
+    function renderCards(data) {
+      $('cards').textContent = '';
+      const drops =
+        (data.counts.dropped_age || 0) +
+        (data.counts.queue_full || 0) +
+        (data.counts.disabled || 0) +
+        (data.counts.other_group || 0) +
+        (data.counts.no_keyword || 0) +
+        (data.counts.keyword_unregistered || 0) +
+        (data.counts.not_target || 0) +
+        (data.counts.other_account || 0) +
+        (data.counts.humanize_skip || 0) +
+        (data.counts.error || 0);
+      addCard('Respondidos', String(data.counts.replied || 0), 'Mensajes contestados', 'green');
+      addCard('Entrada p50 / p95', `${ms(data.latency.inbound.p50)} / ${ms(data.latency.inbound.p95)}`, 'WhatsApp → bot', 'blue');
+      addCard('Cola p50 / p95', `${ms(data.latency.queue.p50)} / ${ms(data.latency.queue.p95)}`, 'Espera antes de enviar', 'violet');
+      addCard('Envío p50 / p95', `${ms(data.latency.send.p50)} / ${ms(data.latency.send.p95)}`, 'Cifrado + socket', 'green');
+      addCard('Total p50 / p95', `${ms(data.latency.total.p50)} / ${ms(data.latency.total.p95)}`, 'Mensaje → respuesta', 'blue');
+      addCard('ACK p50 / p95', `${ms(data.latency.ack.p50)} / ${ms(data.latency.ack.p95)}`, 'Confirmación de WhatsApp', 'amber');
+      addCard('Caché de grupo', `${data.cache.hit} / ${data.cache.miss}`, 'Aciertos / consultas a red', 'green');
+      addCard('Reconexiones', String(data.system.counts.reconnecting || 0), 'Cortes y reintentos', data.system.counts.reconnecting ? 'red' : 'green');
+      addCard('Descartes', String(drops), 'Candidatos no respondidos', drops ? 'amber' : 'green');
+      addCard('Periodo', `${data.hours} h`, `${data.enabled ? 'Métricas activas' : 'Métricas no disponibles'}`, 'gray');
+    }
+
+    function renderAccounts(data) {
+      const body = $('accountsBody');
+      body.textContent = '';
+      $('accountsEmpty').classList.toggle('hidden', data.accounts.length > 0);
+      for (const account of data.accounts) {
+        const row = document.createElement('tr');
+        const name = account.accountLabel || account.accountId.slice(0, 8);
+        const drops =
+          (account.counts.dropped_age || 0) +
+          (account.counts.queue_full || 0) +
+          (account.counts.disabled || 0) +
+          (account.counts.other_group || 0) +
+          (account.counts.no_keyword || 0) +
+          (account.counts.keyword_unregistered || 0) +
+          (account.counts.not_target || 0) +
+          (account.counts.other_account || 0) +
+          (account.counts.humanize_skip || 0) +
+          (account.counts.error || 0);
+        row.append(
+          cell(name),
+          cell(String(account.counts.replied || 0), 'num'),
+          cell(ms(account.latency.inbound.p50), 'num'),
+          cell(`${ms(account.latency.send.p50)} / ${ms(account.latency.send.p95)}`, 'num'),
+          cell(`${ms(account.latency.total.p50)} / ${ms(account.latency.total.p95)}`, 'num'),
+          cell(ms(account.latency.ack.p95), 'num'),
+          cell(String(drops), 'num'),
+        );
+        body.appendChild(row);
+      }
+    }
+
+    function renderEvents(data) {
+      const body = $('eventsBody');
+      body.textContent = '';
+      $('eventsEmpty').classList.toggle('hidden', data.recent.length > 0);
+      for (const event of data.recent) {
+        const row = document.createElement('tr');
+        const outcome = pillCell(label(OUTCOME_LABELS, event.outcome), OUTCOME_CLASS[event.outcome] || 'gray');
+        const cache = event.cache
+          ? pillCell(event.cache === 'hit' ? 'Caché' : 'Red', event.cache === 'hit' ? 'green' : 'amber')
+          : cell('—');
+        row.append(
+          cell(time(event.ts)),
+          cell(event.accountLabel || (event.accountId || '').slice(0, 8)),
+          cell(event.targetLabel || '—'),
+          cell(event.keyword || '—'),
+          cell(ms(event.inboundMs), 'num'),
+          cell(ms(event.queueMs), 'num'),
+          cell(ms(event.sendMs), 'num'),
+          cell(ms(event.totalMs), 'num'),
+          cell(ms(event.ackMs), 'num'),
+          cache,
+          outcome,
+        );
+        body.appendChild(row);
+      }
+    }
+
+    function renderSystem(data) {
+      const body = $('systemBody');
+      body.textContent = '';
+      $('systemEmpty').classList.toggle('hidden', data.system.recent.length > 0);
+      for (const event of data.system.recent) {
+        const row = document.createElement('tr');
+        const color = event.level === 'error' ? 'red' : event.event === 'reconnecting' || event.event === 'closed' ? 'amber' : 'blue';
+        row.append(
+          cell(time(event.ts)),
+          cell(event.accountLabel || (event.accountId || '').slice(0, 8)),
+          pillCell(label(SYSTEM_LABELS, event.event), color),
+          cell(event.detail || (event.code ? `código ${event.code}` : '—')),
+          cell(ms(event.durationMs), 'num'),
+        );
+        body.appendChild(row);
+      }
+    }
+
+    function render(data) {
+      $('errorBanner').classList.add('hidden');
+      renderCards(data);
+      renderAccounts(data);
+      renderEvents(data);
+      renderSystem(data);
+      $('updatedAt').textContent = `Actualizado ${new Date(data.until).toLocaleTimeString('es-MX', { hour12: false })}`;
+    }
+
+    async function load() {
+      if (state.loading) return;
+      state.loading = true;
+      try {
+        const response = await fetch(`${BASE}/api/metrics/summary?hours=${state.hours}`, { cache: 'no-store' });
+        if (response.status === 401) {
+          window.location.href = `${BASE}/login?expired=1`;
+          return;
+        }
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || `Error ${response.status}`);
+        render(data);
+      } catch (error) {
+        $('errorBanner').textContent = `No se pudieron cargar las métricas: ${error.message}`;
+        $('errorBanner').classList.remove('hidden');
+      } finally {
+        state.loading = false;
+      }
+    }
+
+    function csvValue(value) {
+      return `"${String(value ?? '').replaceAll('"', '""')}"`;
+    }
+
+    $('exportBtn').addEventListener('click', async () => {
+      try {
+        const response = await fetch(`${BASE}/api/metrics/events?hours=${state.hours}&limit=500`, {
+          cache: 'no-store',
+        });
+        if (response.status === 401) {
+          window.location.href = `${BASE}/login?expired=1`;
+          return;
+        }
+        const events = await response.json();
+        if (!response.ok) throw new Error(events?.error || `Error ${response.status}`);
+
+        const headers = [
+          'hora',
+          'cuenta',
+          'objetivo',
+          'palabra',
+          'entrada_ms',
+          'cola_ms',
+          'envio_ms',
+          'total_ms',
+          'ack_ms',
+          'cache',
+          'resultado',
+          'detalle',
+        ];
+        const lines = [headers.join(',')];
+        for (const event of events) {
+          lines.push(
+            [
+              new Date(event.ts).toISOString(),
+              event.accountLabel || event.accountId,
+              event.targetLabel,
+              event.keyword,
+              event.inboundMs,
+              event.queueMs,
+              event.sendMs,
+              event.totalMs,
+              event.ackMs,
+              event.cache,
+              event.outcome,
+              event.detail,
+            ]
+              .map(csvValue)
+              .join(','),
+          );
+        }
+
+        const blob = new Blob([`\uFEFF${lines.join('\r\n')}`], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `metricas-${state.hours}h.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        $('errorBanner').textContent = `No se pudo exportar: ${error.message}`;
+        $('errorBanner').classList.remove('hidden');
+      }
+    });
+
+    for (const button of document.querySelectorAll('[data-hours]')) {
+      button.addEventListener('click', () => {
+        state.hours = Number(button.dataset.hours);
+        for (const other of document.querySelectorAll('[data-hours]')) {
+          other.classList.toggle('active', other === button);
+        }
+        load();
+      });
+    }
+
+    state.timer = setInterval(() => {
+      if (!document.hidden) load();
+    }, 5000);
+
+    load();
+  </script>
+</body>
+</html>
